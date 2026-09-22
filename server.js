@@ -33,12 +33,18 @@ app.use((req, res, next) => {
 
 // Auto-seed database and start server
 seedDatabase().then(() => {
-    app.listen(PORT, () => {
-        console.log(`=======================================================`);
-        console.log(`🚀 Smart Student Attendance System running on port ${PORT}`);
-        console.log(`🌐 Local URL: http://localhost:${PORT}`);
-        console.log(`=======================================================`);
-    });
+    if (process.env.VERCEL) {
+        console.log('🚀 Server running on Vercel Serverless Function');
+    } else {
+        app.listen(PORT, () => {
+            console.log(`=======================================================`);
+            console.log(`🚀 Smart Student Attendance System running on port ${PORT}`);
+            console.log(`🌐 Local URL: http://localhost:${PORT}`);
+            console.log(`=======================================================`);
+        });
+    }
 }).catch(err => {
     console.error('Failed to start server:', err);
 });
+
+module.exports = app;
