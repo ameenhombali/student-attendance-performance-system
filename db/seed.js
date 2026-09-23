@@ -24,9 +24,120 @@ async function seedDatabase(forceReset = false) {
             `);
         }
 
-        // Read and execute schema
-        const schemaPath = path.resolve(__dirname, 'schema.sql');
-        const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+        // Read and execute schema (with embedded fallback for serverless environments)
+        let schemaSql = null;
+        try {
+            const schemaPath = path.resolve(__dirname, 'schema.sql');
+            if (fs.existsSync(schemaPath)) {
+                schemaSql = fs.readFileSync(schemaPath, 'utf8');
+            }
+        } catch (e) {
+            console.warn('Could not read schema.sql from disk, using embedded schema fallback.');
+        }
+
+        if (!schemaSql) {
+            schemaSql = `
+                PRAGMA foreign_keys = ON;
+
+                CREATE TABLE IF NOT EXISTS departments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT UNIQUE NOT NULL,
+                    name TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK(role IN ('student', 'faculty', 'admin')),
+                    full_name TEXT NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS students (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER UNIQUE NOT NULL,
+                    usn TEXT UNIQUE NOT NULL,
+                    department_id INTEGER NOT NULL,
+                    semester INTEGER NOT NULL,
+                    section TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (department_id) REFERENCES departments(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS faculty (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER UNIQUE NOT NULL,
+                    faculty_id TEXT UNIQUE NOT NULL,
+                    department_id INTEGER NOT NULL,
+                    designation TEXT DEFAULT 'Assistant Professor',
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (department_id) REFERENCES departments(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS subjects (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    department_id INTEGER NOT NULL,
+                    semester INTEGER NOT NULL,
+                    faculty_id INTEGER NOT NULL,
+                    FOREIGN KEY (department_id) REFERENCES departments(id),
+                    FOREIGN KEY (faculty_id) REFERENCES faculty(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS attendance (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    student_id INTEGER NOT NULL,
+                    subject_id INTEGER NOT NULL,
+                    faculty_id INTEGER NOT NULL,
+                    date TEXT NOT NULL,
+                    class_period TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('Present', 'Absent')),
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+                    FOREIGN KEY (subject_id) REFERENCES subjects(id),
+                    FOREIGN KEY (faculty_id) REFERENCES faculty(id),
+                    UNIQUE(student_id, subject_id, date, class_period)
+                );
+
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    student_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    is_read INTEGER DEFAULT 0,
+                    attendance_id INTEGER,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+                    FOREIGN KEY (attendance_id) REFERENCES attendance(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS marks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    student_id INTEGER NOT NULL,
+                    subject_id INTEGER NOT NULL,
+                    internal_1 REAL DEFAULT 0,
+                    internal_2 REAL DEFAULT 0,
+                    assignment REAL DEFAULT 0,
+                    lab REAL DEFAULT 0,
+                    project REAL DEFAULT 0,
+                    final_exam REAL DEFAULT 0,
+                    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+                    FOREIGN KEY (subject_id) REFERENCES subjects(id),
+                    UNIQUE(student_id, subject_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT UNIQUE NOT NULL,
+                    value TEXT NOT NULL
+                );
+            `;
+        }
+
         await db.exec(schemaSql);
         console.log('✅ Database schema verified.');
 
