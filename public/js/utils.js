@@ -2,6 +2,17 @@
 
 const API_BASE = '/api';
 
+// HTML Escape — prevents XSS in dynamic content
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 // Token Management
 function getToken() {
     return localStorage.getItem('college_auth_token');
