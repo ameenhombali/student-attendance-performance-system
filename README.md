@@ -42,9 +42,9 @@ The system automatically initializes and seeds realistic demo data on first laun
 
 | Role | Username / USN | Password | Details |
 | :--- | :--- | :--- | :--- |
-| **Student (Normal)** | `ameen` or `101` | `password123` | High Attendance (~90%), 5 subjects |
-| **Student (Low Attn Alert)** | `ali` or `103` | `password123` | Low Attendance (~65%), triggers 🔴 Alert Banner |
-| **Student** | `rahul` or `102` | `password123` | Medium Attendance (~78%), 🟡 Warning |
+| **Student (Normal)** | `3CS001` or `ameen` | `student123` | High Attendance (~90%), 5 subjects |
+| **Student (Low Attn Alert)** | `3CS003` or `ali` | `student123` | Low Attendance (~65%), triggers 🔴 Alert Banner |
+| **Student** | `3CS002` or `rahul` | `student123` | Medium Attendance (~78%), 🟡 Warning |
 | **Faculty** | `sharma` or `F101` | `password123` | Handles Python Programming & Computer Networks |
 | **Faculty** | `verma` or `F102` | `password123` | Handles Database Management Systems & Software Engg |
 | **Faculty** | `rao` or `F103` | `password123` | Handles Operating Systems |

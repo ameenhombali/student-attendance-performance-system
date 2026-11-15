@@ -27,9 +27,16 @@ async function seedDatabase(forceReset = false) {
         // Read and execute schema (with embedded fallback for serverless environments)
         let schemaSql = null;
         try {
-            const schemaPath = path.resolve(__dirname, 'schema.sql');
-            if (fs.existsSync(schemaPath)) {
-                schemaSql = fs.readFileSync(schemaPath, 'utf8');
+            const schemaCandidates = [
+                path.resolve(__dirname, 'schema.sql'),
+                path.resolve(__dirname, '../db/schema.sql'),
+                path.resolve(process.cwd(), 'db/schema.sql')
+            ];
+            for (const cand of schemaCandidates) {
+                if (fs.existsSync(cand)) {
+                    schemaSql = fs.readFileSync(cand, 'utf8');
+                    break;
+                }
             }
         } catch (e) {
             console.warn('Could not read schema.sql from disk, using embedded schema fallback.');
@@ -322,6 +329,7 @@ async function seedDatabase(forceReset = false) {
 
     } catch (err) {
         console.error('❌ Error seeding database:', err);
+        throw err;
     }
 }
 

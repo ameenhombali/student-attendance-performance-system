@@ -17,14 +17,14 @@ router.post('/login', async (req, res) => {
         let user = null;
 
         if (portalType === 'student') {
-            // Search by username or student USN (case-insensitive)
+            // Search by username, student USN, or email (case-insensitive)
             user = await db.get(
                 `SELECT u.*, s.id as student_id, s.usn, s.department_id, s.semester, s.section, d.name as department_name
                  FROM users u
                  JOIN students s ON u.id = s.user_id
                  JOIN departments d ON s.department_id = d.id
-                 WHERE (LOWER(u.username) = LOWER(?) OR LOWER(s.usn) = LOWER(?)) AND u.role = 'student'`,
-                [usernameOrId, usernameOrId]
+                 WHERE (LOWER(u.username) = LOWER(?) OR LOWER(s.usn) = LOWER(?) OR LOWER(u.email) = LOWER(?) OR LOWER(u.email) LIKE LOWER(? || '@%')) AND u.role = 'student'`,
+                [usernameOrId, usernameOrId, usernameOrId, usernameOrId]
             );
         } else if (portalType === 'faculty') {
             // Search by username, faculty ID, or email (case-insensitive)

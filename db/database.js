@@ -1,4 +1,3 @@
-const initSqlJs = require('sql.js');
 const path = require('path');
 const fs = require('fs');
 
@@ -10,19 +9,70 @@ if (process.env.VERCEL) {
 let dbInstance = null;
 let initPromise = null;
 
+// Helper to load sql.js engine (pure JavaScript asm.js preferred for 100% serverless portability)
+async function loadSqlJsEngine() {
+    try {
+        const initSqlAsm = require('sql.js/dist/sql-asm.js');
+        return await initSqlAsm();
+    } catch (e) {
+        console.warn('sql-asm.js not available, falling back to sql-wasm:', e.message);
+    }
+
+    const initSqlWasm = require('sql.js');
+    return await initSqlWasm({
+        locateFile: (file) => {
+            const candidates = [
+                path.resolve(__dirname, '../node_modules/sql.js/dist', file),
+                path.resolve(__dirname, 'node_modules/sql.js/dist', file),
+                path.resolve(process.cwd(), 'node_modules/sql.js/dist', file),
+                path.resolve(__dirname, file)
+            ];
+            for (const cand of candidates) {
+                if (fs.existsSync(cand)) return cand;
+            }
+            return file;
+        }
+    });
+}
+
+function findSourceDatabasePath() {
+    const candidates = [
+        path.resolve(__dirname, '../database.sqlite'),
+        path.resolve(__dirname, 'database.sqlite'),
+        path.resolve(process.cwd(), 'database.sqlite')
+    ];
+    for (const cand of candidates) {
+        try {
+            if (fs.existsSync(cand) && fs.statSync(cand).size > 0) {
+                return cand;
+            }
+        } catch (e) {}
+    }
+    return null;
+}
+
 async function getDbInstance() {
     if (dbInstance) return dbInstance;
     if (!initPromise) {
         initPromise = (async () => {
-            const SQL = await initSqlJs();
+            const SQL = await loadSqlJsEngine();
             let fileData = null;
 
-            const sourceDbPath = path.resolve(__dirname, '../database.sqlite');
             if (process.env.VERCEL) {
                 if (fs.existsSync(dbPath) && fs.statSync(dbPath).size > 0) {
                     fileData = fs.readFileSync(dbPath);
-                } else if (fs.existsSync(sourceDbPath) && fs.statSync(sourceDbPath).size > 0) {
-                    fileData = fs.readFileSync(sourceDbPath);
+                } else {
+                    const sourceDbPath = findSourceDatabasePath();
+                    if (sourceDbPath) {
+                        fileData = fs.readFileSync(sourceDbPath);
+                        try {
+                            const dir = path.dirname(dbPath);
+                            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                            fs.writeFileSync(dbPath, fileData);
+                        } catch (err) {
+                            console.error('Failed to copy database to /tmp:', err);
+                        }
+                    }
                 }
             } else {
                 if (fs.existsSync(dbPath) && fs.statSync(dbPath).size > 0) {
@@ -41,7 +91,10 @@ async function getDbInstance() {
             } catch (e) {}
 
             return dbInstance;
-        })();
+        })().catch(err => {
+            initPromise = null;
+            throw err;
+        });
     }
     return await initPromise;
 }
