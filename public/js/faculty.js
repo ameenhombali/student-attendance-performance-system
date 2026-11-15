@@ -595,3 +595,157 @@ async function saveStudentMarksForm() {
         showToast(err.message || 'Failed to save marks', 'error');
     }
 }
+
+// ==========================================================
+// ATTENDANCE CORRECTION REQUESTS (FACULTY REVIEW)
+// ==========================================================
+async function renderFacultyCorrections() {
+    const container = document.getElementById('view-container');
+    container.innerHTML = `
+        <div class="page-header" style="margin-bottom:20px;">
+            <h2>📝 Attendance Correction Requests</h2>
+            <p style="color:var(--text-muted); font-size:0.88rem;">Review student absence disputes, medical leave certificates, and update attendance upon verification.</p>
+        </div>
+
+        <div id="faculty-corrections-container">
+            <div style="text-align:center; padding:40px; color:var(--text-muted);">Loading correction requests...</div>
+        </div>
+    `;
+
+    loadFacultyCorrections();
+}
+
+async function loadFacultyCorrections() {
+    const container = document.getElementById('faculty-corrections-container');
+    if (!container) return;
+
+    try {
+        const data = await apiFetch('/faculty/correction-requests');
+        const requests = data.requests || [];
+
+        if (requests.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state" style="text-align:center; padding:60px 20px; background:var(--card-bg); border-radius:12px; border:1px solid var(--border-color);">
+                    <div style="font-size:3rem; margin-bottom:12px;">✅</div>
+                    <h3>No Correction Requests Pending</h3>
+                    <p style="color:var(--text-muted); max-width:400px; margin:8px auto;">
+                        There are currently no attendance correction requests submitted by students for your subjects.
+                    </p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Subject</th>
+                            <th>Class Date & Time</th>
+                            <th>Reason</th>
+                            <th>Document Proof</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${requests.map(r => `
+                            <tr>
+                                <td>
+                                    <strong>${escapeHtml(r.student_name)}</strong>
+                                    <div style="font-size:0.75rem; color:#818cf8;">${escapeHtml(r.usn)}</div>
+                                </td>
+                                <td>
+                                    <strong>${escapeHtml(r.subject_code)}</strong>
+                                    <div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(r.subject_name)}</div>
+                                </td>
+                                <td>
+                                    <div>${formatDate(r.date)}</div>
+                                    <div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(r.class_period)}</div>
+                                </td>
+                                <td style="max-width:240px; font-size:0.82rem;">${escapeHtml(r.reason)}</td>
+                                <td>
+                                    ${r.attachment_data ? `
+                                        <a href="${r.attachment_data}" download="${r.attachment_name || 'proof.pdf'}" 
+                                           style="color:#818cf8; font-size:0.78rem; text-decoration:none;">
+                                            📎 ${escapeHtml(r.attachment_name || 'View Proof')}
+                                        </a>
+                                    ` : '<span style="color:var(--text-muted); font-size:0.75rem;">None</span>'}
+                                </td>
+                                <td><span class="status-pill status-${r.status}">${r.status}</span></td>
+                                <td>
+                                    ${r.status === 'Pending' ? `
+                                        <div style="display:flex; gap:6px;">
+                                            <button class="btn-primary" onclick="openReviewCorrectionModal(${r.id}, 'Approved', '${escapeHtml(r.student_name)}', '${r.date}')" style="padding:4px 10px; font-size:0.75rem; background:#10b981; border-color:#10b981;">
+                                                Approve ✓
+                                            </button>
+                                            <button class="btn-demo" onclick="openReviewCorrectionModal(${r.id}, 'Rejected', '${escapeHtml(r.student_name)}', '${r.date}')" style="padding:4px 10px; font-size:0.75rem; color:#ef4444; border-color:rgba(239,68,68,0.4);">
+                                                Reject ✕
+                                            </button>
+                                        </div>
+                                    ` : `<span style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(r.faculty_remarks || 'Reviewed')}</span>`}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    } catch (err) {
+        container.innerHTML = `<div class="error-msg">${err.message}</div>`;
+    }
+}
+
+function openReviewCorrectionModal(id, action, studentName, date) {
+    const modal = document.getElementById('app-modal');
+    const title = document.getElementById('modal-title');
+    const body = document.getElementById('modal-body');
+
+    const isApprove = action === 'Approved';
+    title.textContent = isApprove ? `Approve Attendance Correction - ${studentName}` : `Reject Attendance Correction - ${studentName}`;
+
+    body.innerHTML = `
+        <form onsubmit="submitReviewCorrection(event, ${id}, '${action}')">
+            <div style="margin-bottom:14px; font-size:0.9rem; color:var(--text-secondary);">
+                ${isApprove 
+                    ? `You are approving ${studentName}'s attendance correction for <strong>${date}</strong>. The attendance record will be updated to <strong style="color:#10b981;">Present</strong> and a notification will be delivered to the student.` 
+                    : `You are rejecting this request. Please provide an explanation so the student is informed.`}
+            </div>
+
+            <div class="form-group">
+                <label>Faculty Remarks / Justification</label>
+                <textarea id="corr-review-remarks" class="form-control" rows="3" 
+                          placeholder="${isApprove ? 'e.g. Verified with event coordinator / duty slip approved.' : 'e.g. Document slip invalid or signature missing.'}"></textarea>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+                <button type="button" class="btn-demo" onclick="document.getElementById('app-modal').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn-primary" style="${isApprove ? 'background:#10b981; border-color:#10b981;' : 'background:#ef4444; border-color:#ef4444;'}">
+                    Confirm ${action} →
+                </button>
+            </div>
+        </form>
+    `;
+
+    modal.classList.add('active');
+}
+
+async function submitReviewCorrection(e, id, action) {
+    e.preventDefault();
+    const remarks = document.getElementById('corr-review-remarks').value.trim();
+
+    try {
+        const res = await apiFetch(`/faculty/correction-requests/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ action, remarks })
+        });
+
+        showToast(res.message, 'success');
+        document.getElementById('app-modal').classList.remove('active');
+        loadFacultyCorrections();
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}

@@ -7,6 +7,17 @@ document.addEventListener('DOMContentLoaded', () => {
 let notifPollInterval = null;
 
 async function initApp() {
+    // Check if public ID verification route is requested
+    const currentHash = window.location.hash || '';
+    if (currentHash.startsWith('#verify-id')) {
+        const urlParams = new URLSearchParams(currentHash.split('?')[1]);
+        const usn = urlParams.get('usn');
+        if (usn) {
+            renderVerifyIdPublicView(usn);
+            return;
+        }
+    }
+
     const token = getToken();
     const user = getUser();
 
@@ -71,6 +82,7 @@ function renderLoginView() {
                 <div class="role-tabs">
                     <button class="role-tab active" data-role="student">👨‍🎓 Student Login</button>
                     <button class="role-tab" data-role="faculty">👨‍🏫 Faculty Login</button>
+                    <button class="role-tab" data-role="admin">🛡️ Admin Login</button>
                 </div>
 
                 <form id="login-form">
@@ -102,6 +114,7 @@ function renderLoginView() {
                         <button class="btn-demo" onclick="quickDemoLogin('3CS002', 'student')">👨‍🎓 Rahul (3CS002)</button>
                         <button class="btn-demo" onclick="quickDemoLogin('3CS003', 'student')">🔴 Ali (3CS003)</button>
                         <button class="btn-demo" onclick="quickDemoLogin('sharma', 'faculty')">👨‍🏫 Faculty (Dr. Sharma)</button>
+                        <button class="btn-demo" onclick="quickDemoLogin('admin', 'admin')">🛡️ Administrator</button>
                         <button class="btn-demo" onclick="resetDemoData()" style="color:var(--status-yellow); border-color:rgba(245, 158, 11, 0.4);">🔄 Reset Demo Data</button>
                     </div>
                 </div>
@@ -115,21 +128,49 @@ function renderLoginView() {
 function renderShellLayout(user) {
     const app = document.getElementById('app');
 
-    const isStudent = user.role === 'student';
+    let portalLabel = 'Student Portal';
+    let sidebarMenu = '';
 
-    const sidebarMenu = isStudent ? `
-        <div class="sidebar-menu-title">Student Portal</div>
-        <li class="sidebar-item"><a href="#student-dashboard" class="sidebar-link" id="nav-student-dashboard">📊 Dashboard</a></li>
-        <li class="sidebar-item"><a href="#student-history" class="sidebar-link" id="nav-student-history">📜 Attendance History</a></li>
-        <li class="sidebar-item"><a href="#student-subject-wise" class="sidebar-link" id="nav-student-subject-wise">📚 Subject-Wise</a></li>
-        <li class="sidebar-item"><a href="#student-marks" class="sidebar-link" id="nav-student-marks">🏆 Test Marks & Analytics</a></li>
-    ` : `
-        <div class="sidebar-menu-title">Faculty Portal</div>
-        <li class="sidebar-item"><a href="#faculty-dashboard" class="sidebar-link" id="nav-faculty-dashboard">📊 Dashboard</a></li>
-        <li class="sidebar-item"><a href="#faculty-mark-attendance" class="sidebar-link" id="nav-faculty-mark-attendance">📋 Mark Attendance</a></li>
-        <li class="sidebar-item"><a href="#faculty-history" class="sidebar-link" id="nav-faculty-history">📜 Submitted History</a></li>
-        <li class="sidebar-item"><a href="#faculty-marks" class="sidebar-link" id="nav-faculty-marks">✏️ Manage Student Marks</a></li>
-    `;
+    if (user.role === 'student') {
+        portalLabel = 'Student Portal';
+        sidebarMenu = `
+            <div class="sidebar-menu-title">Student Portal</div>
+            <li class="sidebar-item"><a href="#student-dashboard" class="sidebar-link" id="nav-student-dashboard">📊 Dashboard</a></li>
+            <li class="sidebar-item"><a href="#student-id-card" class="sidebar-link" id="nav-student-id-card">🪪 Digital ID Card</a></li>
+            <li class="sidebar-item"><a href="#student-history" class="sidebar-link" id="nav-student-history">📜 Attendance History</a></li>
+            <li class="sidebar-item"><a href="#student-corrections" class="sidebar-link" id="nav-student-corrections">📝 Correction Requests</a></li>
+            <li class="sidebar-item"><a href="#student-subject-wise" class="sidebar-link" id="nav-student-subject-wise">📚 Subject-Wise</a></li>
+            <li class="sidebar-item"><a href="#notices" class="sidebar-link" id="nav-notices">📢 Notice Board</a></li>
+            <li class="sidebar-item"><a href="#study-materials" class="sidebar-link" id="nav-study-materials">📖 Study Materials</a></li>
+            <li class="sidebar-item"><a href="#student-marks" class="sidebar-link" id="nav-student-marks">🏆 Test Marks & Analytics</a></li>
+        `;
+    } else if (user.role === 'faculty') {
+        portalLabel = 'Faculty Portal';
+        sidebarMenu = `
+            <div class="sidebar-menu-title">Faculty Portal</div>
+            <li class="sidebar-item"><a href="#faculty-dashboard" class="sidebar-link" id="nav-faculty-dashboard">📊 Dashboard</a></li>
+            <li class="sidebar-item"><a href="#faculty-mark-attendance" class="sidebar-link" id="nav-faculty-mark-attendance">📋 Mark Attendance</a></li>
+            <li class="sidebar-item"><a href="#faculty-history" class="sidebar-link" id="nav-faculty-history">📜 Submitted History</a></li>
+            <li class="sidebar-item"><a href="#faculty-corrections" class="sidebar-link" id="nav-faculty-corrections">📝 Correction Requests</a></li>
+            <li class="sidebar-item"><a href="#faculty-marks" class="sidebar-link" id="nav-faculty-marks">✏️ Manage Student Marks</a></li>
+            <li class="sidebar-item"><a href="#study-materials" class="sidebar-link" id="nav-study-materials">📖 Study Materials</a></li>
+            <li class="sidebar-item"><a href="#notices" class="sidebar-link" id="nav-notices">📢 Notice Board</a></li>
+        `;
+    } else if (user.role === 'admin') {
+        portalLabel = 'Admin Portal';
+        sidebarMenu = `
+            <div class="sidebar-menu-title">Admin Portal</div>
+            <li class="sidebar-item"><a href="#admin-dashboard" class="sidebar-link" id="nav-admin-dashboard">📊 Dashboard</a></li>
+            <li class="sidebar-item"><a href="#admin-students" class="sidebar-link" id="nav-admin-students">👨‍🎓 Manage Students</a></li>
+            <li class="sidebar-item"><a href="#admin-faculty" class="sidebar-link" id="nav-admin-faculty">👨‍🏫 Manage Faculty</a></li>
+            <li class="sidebar-item"><a href="#admin-academics" class="sidebar-link" id="nav-admin-academics">🏛️ Academic Setup</a></li>
+            <li class="sidebar-item"><a href="#admin-bulk-import" class="sidebar-link" id="nav-admin-bulk-import">📥 Bulk Excel Import</a></li>
+            <li class="sidebar-item"><a href="#admin-id-cards" class="sidebar-link" id="nav-admin-id-cards">🪪 Digital ID Cards</a></li>
+            <li class="sidebar-item"><a href="#notices" class="sidebar-link" id="nav-notices">📢 Notice Board</a></li>
+            <li class="sidebar-item"><a href="#study-materials" class="sidebar-link" id="nav-study-materials">📖 Study Materials</a></li>
+            <li class="sidebar-item"><a href="#admin-audit-logs" class="sidebar-link" id="nav-admin-audit-logs">🛡️ Audit Logs</a></li>
+        `;
+    }
 
     app.innerHTML = `
         <div class="app-container">
@@ -139,7 +180,7 @@ function renderShellLayout(user) {
                     <div class="logo-badge">🎓</div>
                     <div>
                         <h2>Smart Campus</h2>
-                        <div style="font-size:0.72rem; color:var(--text-muted);">${isStudent ? 'Student Portal' : 'Faculty Portal'}</div>
+                        <div style="font-size:0.72rem; color:var(--text-muted);">${portalLabel}</div>
                     </div>
                 </div>
 
@@ -149,10 +190,10 @@ function renderShellLayout(user) {
 
                 <div class="sidebar-footer">
                     <div class="user-profile-summary">
-                        <div class="user-avatar">${user.full_name.charAt(0)}</div>
+                        <div class="user-avatar">${user.full_name ? user.full_name.charAt(0) : 'U'}</div>
                         <div class="user-info-text">
-                            <h4>${user.full_name}</h4>
-                            <p>${isStudent ? 'USN: ' + (user.usn || '') : user.designation || 'Faculty'}</p>
+                            <h4>${escapeHtml(user.full_name || user.username)}</h4>
+                            <p>${user.role === 'student' ? 'USN: ' + (user.usn || '') : (user.role === 'admin' ? 'Administrator' : user.designation || 'Faculty')}</p>
                         </div>
                     </div>
                 </div>
@@ -167,7 +208,7 @@ function renderShellLayout(user) {
                     </div>
 
                     <div class="topbar-actions">
-                        ${isStudent ? `
+                        ${user.role === 'student' ? `
                             <div class="notification-bell-container">
                                 <button class="bell-btn" id="bell-btn" onclick="toggleNotificationDropdown()">
                                     🔔
@@ -202,23 +243,54 @@ function handleRoute() {
     const user = getUser();
     if (!user) return;
 
-    let hash = window.location.hash || (user.role === 'student' ? '#student-dashboard' : '#faculty-dashboard');
+    let hash = window.location.hash || (
+        user.role === 'student' ? '#student-dashboard' : (user.role === 'admin' ? '#admin-dashboard' : '#faculty-dashboard')
+    );
+
+    // Public QR verification check
+    if (hash.startsWith('#verify-id')) {
+        const urlParams = new URLSearchParams(hash.split('?')[1]);
+        const usn = urlParams.get('usn');
+        if (usn) {
+            renderVerifyIdPublicView(usn);
+            return;
+        }
+    }
 
     // Remove active state from all nav links
     document.querySelectorAll('.sidebar-link').forEach(link => link.classList.remove('active'));
 
-    const activeNav = document.getElementById(`nav-${hash.replace('#', '')}`);
+    const navId = `nav-${hash.replace('#', '')}`;
+    const activeNav = document.getElementById(navId);
     if (activeNav) activeNav.classList.add('active');
 
     const topbarHeading = document.getElementById('topbar-heading');
 
+    // Common routes (Notices & Study Materials accessible from all 3 portals)
+    if (hash === '#notices') {
+        topbarHeading.textContent = 'College Notice Board';
+        renderNoticesView();
+        return;
+    } else if (hash === '#study-materials') {
+        topbarHeading.textContent = 'Study Materials & Course Documents';
+        renderMaterialsView();
+        return;
+    }
+
+    // Role-specific routing
     if (user.role === 'student') {
         if (hash === '#student-dashboard') {
             topbarHeading.textContent = 'Student Dashboard';
             renderStudentDashboard();
+        } else if (hash === '#student-id-card') {
+            topbarHeading.textContent = 'Digital Student ID Card';
+            renderStudentIdCard();
         } else if (hash === '#student-history') {
             topbarHeading.textContent = 'Attendance History';
             renderStudentHistory();
+        } else if (hash === '#student-corrections') {
+            topbarHeading.textContent = 'Attendance Correction Requests';
+            renderStudentCorrections();
         } else if (hash === '#student-subject-wise') {
             topbarHeading.textContent = 'Subject-Wise Attendance';
             renderStudentSubjectWise();
@@ -238,11 +310,39 @@ function handleRoute() {
         } else if (hash === '#faculty-history') {
             topbarHeading.textContent = 'Submitted Attendance History';
             renderFacultyHistory();
+        } else if (hash === '#faculty-corrections') {
+            topbarHeading.textContent = 'Attendance Correction Requests';
+            renderFacultyCorrections();
         } else if (hash === '#faculty-marks') {
             topbarHeading.textContent = 'Manage Student Academic Marks';
             renderFacultyMarks();
         } else {
             window.location.hash = '#faculty-dashboard';
+        }
+    } else if (user.role === 'admin') {
+        if (hash === '#admin-dashboard') {
+            topbarHeading.textContent = 'Administrator Control Center';
+            renderAdminDashboard();
+        } else if (hash === '#admin-students') {
+            topbarHeading.textContent = 'Student Accounts Directory';
+            renderAdminStudents();
+        } else if (hash === '#admin-faculty') {
+            topbarHeading.textContent = 'Faculty Accounts Directory';
+            renderAdminFaculty();
+        } else if (hash === '#admin-academics') {
+            topbarHeading.textContent = 'Academic Setup & Curriculum';
+            renderAdminAcademics();
+        } else if (hash === '#admin-bulk-import') {
+            topbarHeading.textContent = 'Bulk Student Import (Excel)';
+            renderAdminBulkImport();
+        } else if (hash === '#admin-id-cards') {
+            topbarHeading.textContent = 'Digital Student ID Cards';
+            renderAdminIdCards();
+        } else if (hash === '#admin-audit-logs') {
+            topbarHeading.textContent = 'System Audit Logs';
+            renderAdminAuditLogs();
+        } else {
+            window.location.hash = '#admin-dashboard';
         }
     }
 }
@@ -271,7 +371,6 @@ async function pollStudentNotifications() {
                 badge.textContent = unread_count;
                 badge.classList.remove('hidden');
 
-                // Trigger toast notification if new alert came in
                 if (unread_count > lastUnreadCount && notifications.length > 0) {
                     const latest = notifications[0];
                     showToast(latest.message, latest.type === 'present_alert' ? 'success' : 'error');
@@ -289,8 +388,8 @@ async function pollStudentNotifications() {
             } else {
                 listContainer.innerHTML = notifications.map(n => `
                     <div class="notif-item ${n.is_read === 0 ? 'unread' : ''}" onclick="markSingleNotificationRead(${n.id})">
-                        <div class="notif-title">${n.title}</div>
-                        <div class="notif-msg">${n.message}</div>
+                        <div class="notif-title">${escapeHtml(n.title)}</div>
+                        <div class="notif-msg">${escapeHtml(n.message)}</div>
                         <div class="notif-time">${formatDate(n.created_at)}</div>
                     </div>
                 `).join('');
@@ -301,21 +400,37 @@ async function pollStudentNotifications() {
 
 async function markSingleNotificationRead(id) {
     try {
-        await apiFetch(`/student/notifications/${id}/read`, { method: 'PUT' });
+        await apiFetch(`/student/notifications/${id}/read`, { method: 'POST' });
         pollStudentNotifications();
     } catch (e) {}
 }
 
 async function markAllNotificationsRead() {
     try {
-        await apiFetch('/student/notifications/read-all', { method: 'PUT' });
+        await apiFetch('/student/notifications/read-all', { method: 'POST' });
         pollStudentNotifications();
     } catch (e) {}
 }
 
-function logoutUser() {
+async function logoutUser() {
     if (notifPollInterval) clearInterval(notifPollInterval);
+    try {
+        await apiFetch('/auth/logout', { method: 'POST' });
+    } catch (e) {}
     clearSession();
     window.location.hash = '';
     window.location.reload();
+}
+
+async function resetDemoData() {
+    if (!confirm('Are you sure you want to reset the database to clean demo data?')) return;
+    try {
+        showToast('Resetting demo database...', 'info');
+        await apiFetch('/settings/reset-demo', { method: 'POST' });
+        showToast('Database reset successfully! Reloading...', 'success');
+        clearSession();
+        setTimeout(() => window.location.reload(), 1200);
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
 }

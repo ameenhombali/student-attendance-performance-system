@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS students (
     department_id INTEGER NOT NULL,
     semester INTEGER NOT NULL,
     section TEXT NOT NULL,
+    photo_url TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (department_id) REFERENCES departments(id)
 );
@@ -78,7 +79,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     student_id INTEGER NOT NULL,
     title TEXT NOT NULL,
     message TEXT NOT NULL,
-    type TEXT NOT NULL, -- 'present_alert', 'absent_alert', 'warning'
+    type TEXT NOT NULL, -- 'present_alert', 'absent_alert', 'warning', 'notice', 'correction'
     is_read INTEGER DEFAULT 0, -- 0 for unread, 1 for read
     attendance_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -107,4 +108,87 @@ CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     key TEXT UNIQUE NOT NULL,
     value TEXT NOT NULL
+);
+
+-- Notices Table
+CREATE TABLE IF NOT EXISTS notices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL CHECK(category IN ('Academic', 'Examination', 'Events', 'Holidays', 'General')),
+    is_important INTEGER DEFAULT 0,
+    attachment_name TEXT,
+    attachment_data TEXT,
+    published_by INTEGER NOT NULL,
+    published_role TEXT NOT NULL,
+    publish_date TEXT NOT NULL,
+    expiry_date TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (published_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Notice Reads (Tracking Read/Unread Status per User)
+CREATE TABLE IF NOT EXISTS notice_reads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    notice_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    read_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (notice_id) REFERENCES notices(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE(notice_id, user_id)
+);
+
+-- Study Materials Table
+CREATE TABLE IF NOT EXISTS study_materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    subject_id INTEGER NOT NULL,
+    department_id INTEGER NOT NULL,
+    semester INTEGER NOT NULL,
+    faculty_id INTEGER NOT NULL,
+    file_name TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    file_size INTEGER DEFAULT 0,
+    file_data TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
+    FOREIGN KEY (faculty_id) REFERENCES faculty(id) ON DELETE CASCADE
+);
+
+-- Attendance Correction Requests Table
+CREATE TABLE IF NOT EXISTS attendance_corrections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    attendance_id INTEGER NOT NULL,
+    subject_id INTEGER NOT NULL,
+    faculty_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    class_period TEXT NOT NULL,
+    current_status TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    attachment_name TEXT,
+    attachment_data TEXT,
+    status TEXT NOT NULL DEFAULT 'Pending' CHECK(status IN ('Pending', 'Approved', 'Rejected')),
+    faculty_remarks TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at DATETIME,
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY (attendance_id) REFERENCES attendance(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id),
+    FOREIGN KEY (faculty_id) REFERENCES faculty(id)
+);
+
+-- Audit Logs Table
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    user_name TEXT NOT NULL,
+    user_role TEXT NOT NULL,
+    action TEXT NOT NULL,
+    details TEXT,
+    record_id INTEGER,
+    ip_address TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

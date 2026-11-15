@@ -1,0 +1,454 @@
+/* ==========================================================
+   New Features CSS: Digital ID Card, Notices, Materials, 
+   Attendance Corrections, Bulk Import, and Audit Logs
+   ========================================================== */
+
+/* ----------------------------------------------------------
+   1. DIGITAL STUDENT ID CARD
+   ---------------------------------------------------------- */
+.id-card-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 25px;
+    padding: 20px 0;
+}
+
+.id-card-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.id-card-badge {
+    width: 360px;
+    background: linear-gradient(145deg, #1e293b, #0f172a);
+    border: 2px solid rgba(99, 102, 241, 0.4);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.6), 0 0 15px rgba(99, 102, 241, 0.2);
+    position: relative;
+    color: #ffffff;
+    font-family: inherit;
+    transition: transform 0.3s ease;
+}
+
+.id-card-badge:hover {
+    transform: translateY(-4px);
+    border-color: rgba(99, 102, 241, 0.7);
+}
+
+.id-card-lanyard-hole {
+    width: 60px;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 20px;
+    margin: 12px auto 0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.id-card-header {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    padding: 16px 14px;
+    text-align: center;
+    position: relative;
+}
+
+.id-card-header .college-crest {
+    font-size: 1.8rem;
+    margin-bottom: 4px;
+}
+
+.id-card-header h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #ffffff;
+}
+
+.id-card-header p {
+    margin: 3px 0 0;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.id-card-body {
+    padding: 20px 18px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+.id-card-photo-wrapper {
+    position: relative;
+    width: 100px;
+    height: 100px;
+    margin-bottom: 14px;
+}
+
+.id-card-photo {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid #6366f1;
+    background: #334155;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.id-card-verified-badge {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    background: #10b981;
+    color: white;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    border: 2px solid #0f172a;
+}
+
+.id-card-name {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #f8fafc;
+    margin: 0 0 4px;
+    text-align: center;
+}
+
+.id-card-usn {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #818cf8;
+    background: rgba(99, 102, 241, 0.15);
+    padding: 3px 12px;
+    border-radius: 12px;
+    margin-bottom: 14px;
+    letter-spacing: 0.5px;
+}
+
+.id-card-details-grid {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    margin-bottom: 16px;
+    font-size: 0.8rem;
+}
+
+.id-detail-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.id-detail-label {
+    color: #94a3b8;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+
+.id-detail-val {
+    color: #f1f5f9;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+.id-card-qr-box {
+    background: #ffffff;
+    padding: 8px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.id-card-qr-box canvas, .id-card-qr-box img {
+    display: block;
+    width: 90px;
+    height: 90px;
+}
+
+.id-card-qr-caption {
+    font-size: 0.65rem;
+    color: #475569;
+    margin-top: 4px;
+    font-weight: 600;
+}
+
+.id-card-footer {
+    width: 100%;
+    padding: 10px 14px;
+    background: rgba(15, 23, 42, 0.95);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.68rem;
+    color: #94a3b8;
+}
+
+/* ----------------------------------------------------------
+   2. NOTICE BOARD STYLES
+   ---------------------------------------------------------- */
+.notices-filter-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+}
+
+.category-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.cat-pill {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.cat-pill:hover, .cat-pill.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.notice-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px;
+}
+
+.notice-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.notice-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.notice-card.important {
+    border-left: 4px solid #f59e0b;
+    background: linear-gradient(180deg, rgba(245, 158, 11, 0.04), transparent);
+}
+
+.notice-badge-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.notice-badge {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-Academic { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+.badge-Examination { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+.badge-Events { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+.badge-Holidays { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+.badge-General { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+
+.badge-important-star {
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.notice-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+.notice-desc {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 16px;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.notice-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border-color);
+    padding-top: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* ----------------------------------------------------------
+   3. STUDY MATERIALS STYLES
+   ---------------------------------------------------------- */
+.materials-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+    gap: 18px;
+}
+
+.material-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.2s;
+}
+
+.material-card:hover {
+    border-color: var(--primary-color);
+    transform: translateY(-2px);
+}
+
+.file-type-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    font-weight: 800;
+    margin-bottom: 12px;
+}
+
+.type-PDF { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.type-PPT, .type-PPTX { background: rgba(249, 115, 22, 0.15); color: #f97316; }
+.type-DOC, .type-DOCX { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.type-FILE { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+
+/* ----------------------------------------------------------
+   4. ATTENDANCE CORRECTIONS STYLES
+   ---------------------------------------------------------- */
+.status-pill {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.status-Pending { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+.status-Approved { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+.status-Rejected { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+/* ----------------------------------------------------------
+   5. BULK IMPORT STYLES
+   ---------------------------------------------------------- */
+.dropzone {
+    border: 2px dashed rgba(99, 102, 241, 0.4);
+    background: rgba(99, 102, 241, 0.03);
+    border-radius: 12px;
+    padding: 30px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.dropzone:hover {
+    border-color: var(--primary-color);
+    background: rgba(99, 102, 241, 0.08);
+}
+
+.preview-summary-boxes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.summary-stat-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+}
+
+.summary-stat-card.valid { border-left: 4px solid #10b981; }
+.summary-stat-card.invalid { border-left: 4px solid #ef4444; }
+
+/* ----------------------------------------------------------
+   6. AUDIT LOGS STYLES
+   ---------------------------------------------------------- */
+.audit-action-tag {
+    font-family: monospace;
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(99, 102, 241, 0.15);
+    color: #818cf8;
+    font-weight: 600;
+}
+
+/* Print Styles for ID Card */
+@media print {
+    body * {
+        visibility: hidden;
+    }
+    .id-card-badge, .id-card-badge * {
+        visibility: visible;
+    }
+    .id-card-badge {
+        position: absolute;
+        left: 50%;
+        top: 20px;
+        transform: translateX(-50%);
+        box-shadow: none !important;
+        border: 2px solid #000 !important;
+        color: #000 !important;
+        background: #fff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .id-card-actions {
+        display: none !important;
+    }
+}

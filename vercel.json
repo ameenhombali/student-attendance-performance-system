@@ -8,7 +8,10 @@
         "includeFiles": [
           "db/**",
           "database.sqlite",
-          "node_modules/sql.js/dist/**"
+          "node_modules/sql.js/dist/**",
+          "utils/**",
+          "routes/**",
+          "public/**"
         ]
       }
     }

@@ -2,8 +2,58 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 
-// All student routes require authentication and 'student' role
+// ==========================================================
+// PUBLIC DIGITAL ID CARD VERIFICATION (QR CODE SCAN TARGET)
+// Safe: Returns public verification details ONLY. Never exposes passwords, hashes, or sensitive contact info.
+// ==========================================================
+router.get('/verify-id/:usn', async (req, res) => {
+    try {
+        const student = await db.get(
+            `SELECT s.id, s.usn, s.semester, s.section, s.photo_url,
+                    u.full_name,
+                    d.name as department_name, d.code as department_code
+             FROM students s
+             JOIN users u ON s.user_id = u.id
+             JOIN departments d ON s.department_id = d.id
+             WHERE UPPER(s.usn) = UPPER(?)`,
+            [req.params.usn]
+        );
+
+        if (!student) {
+            return res.status(404).json({
+                verified: false,
+                message: 'Invalid Student ID. No matching student record found in college registry.'
+            });
+        }
+
+        const collegeNameRow = await db.get("SELECT value FROM settings WHERE key = 'college_name'");
+        const academicYearRow = await db.get("SELECT value FROM settings WHERE key = 'academic_year'");
+
+        return res.json({
+            verified: true,
+            status: 'Active Student Record',
+            student: {
+                full_name: student.full_name,
+                usn: student.usn,
+                department: student.department_name,
+                department_code: student.department_code,
+                semester: student.semester,
+                section: student.section,
+                photo_url: student.photo_url || null,
+                college_name: collegeNameRow ? collegeNameRow.value : 'National Institute of Engineering & Technology',
+                academic_year: academicYearRow ? academicYearRow.value : '2026-2027',
+                verification_timestamp: new Date().toISOString()
+            }
+        });
+    } catch (err) {
+        console.error('ID verification error:', err);
+        return res.status(500).json({ error: 'Failed to verify Student ID.' });
+    }
+});
+
+// All subsequent student routes require authentication and 'student' role
 router.use(authenticateToken);
 router.use(requireRole('student'));
 
@@ -22,7 +72,7 @@ router.get('/dashboard', async (req, res) => {
 
         // Get student info
         const student = await db.get(
-            `SELECT s.id, s.usn, s.semester, s.section, u.full_name, u.email, d.name as department_name, d.code as department_code
+            `SELECT s.id, s.usn, s.semester, s.section, s.photo_url, u.full_name, u.email, d.name as department_name, d.code as department_code
              FROM students s
              JOIN users u ON s.user_id = u.id
              JOIN departments d ON s.department_id = d.id
@@ -116,125 +166,321 @@ router.get('/dashboard', async (req, res) => {
     }
 });
 
-// GET /api/student/attendance/history
-router.get('/attendance/history', async (req, res) => {
+// GET /api/student/id-card - Digital Student ID Card data
+router.get('/id-card', async (req, res) => {
     try {
         const studentId = await getStudentId(req);
-        const { subject_id, status, search, start_date, end_date } = req.query;
+        const student = await db.get(
+            `SELECT s.id as student_id, s.usn, s.semester, s.section, s.photo_url,
+                    u.full_name, u.email,
+                    d.name as department_name, d.code as department_code
+             FROM students s
+             JOIN users u ON s.user_id = u.id
+             JOIN departments d ON s.department_id = d.id
+             WHERE s.id = ?`,
+            [studentId]
+        );
 
-        let query = `
+        if (!student) return res.status(404).json({ error: 'Student record not found.' });
+
+        const collegeNameRow = await db.get("SELECT value FROM settings WHERE key = 'college_name'");
+        const academicYearRow = await db.get("SELECT value FROM settings WHERE key = 'academic_year'");
+        const collegeCodeRow = await db.get("SELECT value FROM settings WHERE key = 'college_code'");
+
+        // Verification token string for QR code verification
+        const qrPayload = JSON.stringify({
+            usn: student.usn,
+            name: student.full_name,
+            dept: student.department_code,
+            sem: student.semester,
+            sec: student.section,
+            verified: true
+        });
+
+        return res.json({
+            id_card: {
+                full_name: student.full_name,
+                usn: student.usn,
+                email: student.email,
+                department_name: student.department_name,
+                department_code: student.department_code,
+                semester: student.semester,
+                section: student.section,
+                photo_url: student.photo_url || null,
+                college_name: collegeNameRow ? collegeNameRow.value : 'National Institute of Engineering & Technology',
+                college_code: collegeCodeRow ? collegeCodeRow.value : 'NIET-560001',
+                academic_year: academicYearRow ? academicYearRow.value : '2026-2027',
+                qr_code_data: qrPayload,
+                issue_date: 'August 2026',
+                valid_thru: 'July 2027'
+            }
+        });
+    } catch (err) {
+        console.error('Error fetching student ID card:', err);
+        return res.status(500).json({ error: 'Failed to fetch student ID card data.' });
+    }
+});
+
+// POST /api/student/upload-photo - Update student photograph
+router.post('/upload-photo', async (req, res) => {
+    try {
+        const studentId = await getStudentId(req);
+        const { photo_url } = req.body;
+
+        if (!photo_url) {
+            return res.status(400).json({ error: 'Photo data is required.' });
+        }
+
+        await db.run('UPDATE students SET photo_url = ? WHERE id = ?', [photo_url, studentId]);
+        await logAudit(req, 'STUDENT_PHOTO_UPDATED', `Student updated their digital ID card photograph.`, studentId);
+
+        return res.json({ message: 'ID card photo updated successfully.', photo_url });
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to update photo.' });
+    }
+});
+
+// ==========================================================
+// ATTENDANCE CORRECTION REQUESTS (STUDENT)
+// ==========================================================
+
+// GET /api/student/absent-sessions - List past absent sessions to request correction
+router.get('/absent-sessions', async (req, res) => {
+    try {
+        const studentId = await getStudentId(req);
+        const absentSessions = await db.all(
+            `SELECT a.id, a.date, a.class_period, a.status, 
+                    sub.id as subject_id, sub.code as subject_code, sub.name as subject_name,
+                    u.full_name as faculty_name,
+                    ac.id as correction_id, ac.status as correction_status
+             FROM attendance a
+             JOIN subjects sub ON a.subject_id = sub.id
+             JOIN faculty f ON a.faculty_id = f.id
+             JOIN users u ON f.user_id = u.id
+             LEFT JOIN attendance_corrections ac ON a.id = ac.attendance_id
+             WHERE a.student_id = ? AND a.status = 'Absent'
+             ORDER BY a.date DESC, a.timestamp DESC`,
+            [studentId]
+        );
+        return res.json({ absent_sessions: absentSessions });
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to fetch absent attendance records.' });
+    }
+});
+
+// GET /api/student/correction-requests - View past correction requests
+router.get('/correction-requests', async (req, res) => {
+    try {
+        const studentId = await getStudentId(req);
+        const requests = await db.all(
+            `SELECT ac.*, 
+                    sub.code as subject_code, sub.name as subject_name,
+                    u.full_name as faculty_name
+             FROM attendance_corrections ac
+             JOIN subjects sub ON ac.subject_id = sub.id
+             JOIN faculty f ON ac.faculty_id = f.id
+             JOIN users u ON f.user_id = u.id
+             WHERE ac.student_id = ?
+             ORDER BY ac.created_at DESC`,
+            [studentId]
+        );
+        return res.json({ requests });
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to fetch correction requests.' });
+    }
+});
+
+// POST /api/student/correction-requests - Submit attendance correction request
+router.post('/correction-requests', async (req, res) => {
+    try {
+        const studentId = await getStudentId(req);
+        const { attendance_id, reason, attachment_name, attachment_data } = req.body;
+
+        if (!attendance_id || !reason) {
+            return res.status(400).json({ error: 'Attendance session selection and reason are required.' });
+        }
+
+        // Validate attendance record exists and belongs to this student and was marked Absent
+        const att = await db.get(
+            `SELECT a.*, sub.name as subject_name, sub.code as subject_code
+             FROM attendance a
+             JOIN subjects sub ON a.subject_id = sub.id
+             WHERE a.id = ? AND a.student_id = ?`,
+            [attendance_id, studentId]
+        );
+
+        if (!att) {
+            return res.status(404).json({ error: 'Attendance record not found or does not belong to you.' });
+        }
+
+        if (att.status !== 'Absent') {
+            return res.status(400).json({ error: `This class session is already recorded as '${att.status}'. Only 'Absent' records can be disputed.` });
+        }
+
+        // Check if there is already a Pending request for this attendance record
+        const existingReq = await db.get(
+            `SELECT id FROM attendance_corrections WHERE attendance_id = ? AND status = 'Pending'`,
+            [attendance_id]
+        );
+        if (existingReq) {
+            return res.status(400).json({ error: 'A correction request for this class session is already pending review by faculty.' });
+        }
+
+        const insertRes = await db.run(
+            `INSERT INTO attendance_corrections 
+             (student_id, attendance_id, subject_id, faculty_id, date, class_period, current_status, reason, attachment_name, attachment_data, status)
+             VALUES (?, ?, ?, ?, ?, ?, 'Absent', ?, ?, ?, 'Pending')`,
+            [
+                studentId,
+                att.id,
+                att.subject_id,
+                att.faculty_id,
+                att.date,
+                att.class_period,
+                reason.trim(),
+                attachment_name || null,
+                attachment_data || null
+            ]
+        );
+
+        await logAudit(
+            req, 
+            'ATTENDANCE_CORRECTION_REQUESTED', 
+            `Student requested attendance correction for ${att.subject_name} on ${att.date}. Reason: ${reason.trim()}`,
+            insertRes.id
+        );
+
+        return res.status(201).json({
+            message: 'Attendance correction request submitted successfully. It will be reviewed by your subject faculty.',
+            request_id: insertRes.id
+        });
+    } catch (err) {
+        console.error('Error submitting correction request:', err);
+        return res.status(500).json({ error: 'Failed to submit correction request.' });
+    }
+});
+
+// GET /api/student/history (Existing Attendance History)
+router.get('/history', async (req, res) => {
+    try {
+        const studentId = await getStudentId(req);
+        const { subject_id, status, from_date, to_date, search } = req.query;
+
+        let sql = `
             SELECT a.id, a.date, a.class_period, a.status, a.timestamp,
-                   sub.id as subject_id, sub.name as subject_name, sub.code as subject_code,
-                   u.full_name as faculty_name
+                   sub.name as subject_name, sub.code as subject_code,
+                   u.full_name as faculty_name,
+                   ac.id as correction_id, ac.status as correction_status
             FROM attendance a
             JOIN subjects sub ON a.subject_id = sub.id
             JOIN faculty f ON a.faculty_id = f.id
             JOIN users u ON f.user_id = u.id
+            LEFT JOIN attendance_corrections ac ON a.id = ac.attendance_id
             WHERE a.student_id = ?
         `;
         const params = [studentId];
 
         if (subject_id) {
-            query += ` AND a.subject_id = ?`;
+            sql += ` AND a.subject_id = ?`;
             params.push(subject_id);
         }
         if (status) {
-            query += ` AND a.status = ?`;
+            sql += ` AND a.status = ?`;
             params.push(status);
         }
-        if (start_date) {
-            query += ` AND a.date >= ?`;
-            params.push(start_date);
+        if (from_date) {
+            sql += ` AND a.date >= ?`;
+            params.push(from_date);
         }
-        if (end_date) {
-            query += ` AND a.date <= ?`;
-            params.push(end_date);
+        if (to_date) {
+            sql += ` AND a.date <= ?`;
+            params.push(to_date);
         }
         if (search) {
-            query += ` AND (sub.name LIKE ? OR sub.code LIKE ? OR u.full_name LIKE ? OR a.date LIKE ?)`;
-            const term = `%${search}%`;
-            params.push(term, term, term, term);
+            sql += ` AND (LOWER(sub.name) LIKE LOWER(?) OR LOWER(sub.code) LIKE LOWER(?) OR LOWER(u.full_name) LIKE LOWER(?))`;
+            params.push(`%${search}%`, `%${search}%`, `%${search}%`);
         }
 
-        query += ` ORDER BY a.date DESC, a.timestamp DESC`;
+        sql += ` ORDER BY a.date DESC, a.timestamp DESC`;
 
-        const records = await db.all(query, params);
-
-        // Compute totals for current filtered set
-        const total = records.length;
-        const present = records.filter(r => r.status === 'Present').length;
-        const absent = records.filter(r => r.status === 'Absent').length;
-        const percentage = total > 0 ? parseFloat(((present / total) * 100).toFixed(1)) : 100;
-
-        return res.json({
-            summary: {
-                total,
-                present,
-                absent,
-                percentage
-            },
-            records
-        });
+        const logs = await db.all(sql, params);
+        return res.json({ history: logs });
     } catch (err) {
-        console.error('Error fetching attendance history:', err);
+        console.error('Error fetching student history:', err);
         return res.status(500).json({ error: 'Failed to fetch attendance history.' });
     }
 });
 
-// GET /api/student/attendance/subject-wise
-router.get('/attendance/subject-wise', async (req, res) => {
+// GET /api/student/subjects (Subject-wise breakdown)
+router.get('/subjects', async (req, res) => {
     try {
         const studentId = await getStudentId(req);
 
-        const thresholdSetting = await db.get("SELECT value FROM settings WHERE key = 'min_attendance_threshold'");
-        const minThreshold = thresholdSetting ? parseFloat(thresholdSetting.value) : 75.0;
-
         const subjects = await db.all(
             `SELECT 
-                sub.id as subject_id,
-                sub.code as subject_code,
-                sub.name as subject_name,
-                sub.semester,
-                u.full_name as faculty_name,
+                sub.id as subject_id, sub.code as subject_code, sub.name as subject_name, sub.semester,
+                u.full_name as faculty_name, u.email as faculty_email,
                 COUNT(a.id) as total_classes,
-                SUM(CASE WHEN a.status = 'Present' THEN 1 ELSE 0 END) as present,
-                SUM(CASE WHEN a.status = 'Absent' THEN 1 ELSE 0 END) as absent
+                SUM(CASE WHEN a.status = 'Present' THEN 1 ELSE 0 END) as present_count,
+                SUM(CASE WHEN a.status = 'Absent' THEN 1 ELSE 0 END) as absent_count,
+                ROUND(CAST(SUM(CASE WHEN a.status = 'Present' THEN 1 ELSE 0 END) AS FLOAT) / 
+                      CASE WHEN COUNT(a.id) > 0 THEN COUNT(a.id) ELSE 1 END * 100, 1) as percentage
              FROM subjects sub
+             JOIN students s ON s.id = ? AND s.department_id = sub.department_id AND s.semester = sub.semester
              JOIN faculty f ON sub.faculty_id = f.id
              JOIN users u ON f.user_id = u.id
-             LEFT JOIN attendance a ON a.subject_id = sub.id AND a.student_id = ?
+             LEFT JOIN attendance a ON a.subject_id = sub.id AND a.student_id = s.id
              GROUP BY sub.id
              ORDER BY sub.code ASC`,
             [studentId]
         );
 
-        const processed = subjects.map(s => {
+        const thresholdSetting = await db.get("SELECT value FROM settings WHERE key = 'min_attendance_threshold'");
+        const minThreshold = thresholdSetting ? parseFloat(thresholdSetting.value) : 75.0;
+
+        const formattedSubjects = subjects.map(s => {
             const total = s.total_classes || 0;
-            const present = s.present || 0;
-            const absent = s.absent || 0;
-            const pct = total > 0 ? parseFloat(((present / total) * 100).toFixed(1)) : 100;
-
-            let color = 'green';
-            if (pct < minThreshold) color = 'red';
-            else if (pct < 85) color = 'yellow';
-
+            const pres = s.present_count || 0;
+            const pct = total > 0 ? parseFloat(((pres / total) * 100).toFixed(1)) : 100.0;
             return {
                 ...s,
                 total_classes: total,
-                present,
-                absent,
+                present_count: pres,
+                absent_count: s.absent_count || 0,
                 percentage: pct,
-                color_status: color
+                is_low: pct < minThreshold
             };
         });
 
         return res.json({
             min_threshold: minThreshold,
-            subjects: processed
+            subjects: formattedSubjects
         });
     } catch (err) {
-        console.error('Error fetching subject-wise attendance:', err);
-        return res.status(500).json({ error: 'Failed to fetch subject-wise attendance.' });
+        console.error('Error fetching subject breakdown:', err);
+        return res.status(500).json({ error: 'Failed to fetch subject-wise breakdown.' });
+    }
+});
+
+// GET /api/student/subjects/:subjectId/logs (In-depth subject sessions modal)
+router.get('/subjects/:subjectId/logs', async (req, res) => {
+    try {
+        const studentId = await getStudentId(req);
+        const { subjectId } = req.params;
+
+        const logs = await db.all(
+            `SELECT a.id, a.date, a.class_period, a.status, a.timestamp, u.full_name as faculty_name
+             FROM attendance a
+             JOIN faculty f ON a.faculty_id = f.id
+             JOIN users u ON f.user_id = u.id
+             WHERE a.student_id = ? AND a.subject_id = ?
+             ORDER BY a.date DESC, a.timestamp DESC`,
+            [studentId, subjectId]
+        );
+
+        return res.json({ logs });
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to fetch subject log.' });
     }
 });
 
@@ -242,59 +488,47 @@ router.get('/attendance/subject-wise', async (req, res) => {
 router.get('/notifications', async (req, res) => {
     try {
         const studentId = await getStudentId(req);
-
         const notifications = await db.all(
-            `SELECT * FROM notifications 
-             WHERE student_id = ? 
-             ORDER BY created_at DESC`,
+            `SELECT * FROM notifications WHERE student_id = ? ORDER BY created_at DESC LIMIT 30`,
+            [studentId]
+        );
+        const unreadCount = await db.get(
+            `SELECT COUNT(*) as count FROM notifications WHERE student_id = ? AND is_read = 0`,
             [studentId]
         );
 
-        const unreadCount = notifications.filter(n => n.is_read === 0).length;
-
         return res.json({
-            unread_count: unreadCount,
-            notifications
+            notifications,
+            unread_count: unreadCount ? unreadCount.count : 0
         });
     } catch (err) {
         return res.status(500).json({ error: 'Failed to fetch notifications.' });
     }
 });
 
-// PUT /api/student/notifications/:id/read
-router.put('/notifications/:id/read', async (req, res) => {
+// POST /api/student/notifications/:id/read
+router.post('/notifications/:id/read', async (req, res) => {
     try {
         const studentId = await getStudentId(req);
-        const { id } = req.params;
-
-        await db.run(
-            `UPDATE notifications SET is_read = 1 WHERE id = ? AND student_id = ?`,
-            [id, studentId]
-        );
-
+        await db.run('UPDATE notifications SET is_read = 1 WHERE id = ? AND student_id = ?', [req.params.id, studentId]);
         return res.json({ message: 'Notification marked as read.' });
     } catch (err) {
-        return res.status(500).json({ error: 'Failed to update notification status.' });
+        return res.status(500).json({ error: 'Failed to update notification.' });
     }
 });
 
-// PUT /api/student/notifications/read-all
-router.put('/notifications/read-all', async (req, res) => {
+// POST /api/student/notifications/read-all
+router.post('/notifications/read-all', async (req, res) => {
     try {
         const studentId = await getStudentId(req);
-
-        await db.run(
-            `UPDATE notifications SET is_read = 1 WHERE student_id = ?`,
-            [studentId]
-        );
-
+        await db.run('UPDATE notifications SET is_read = 1 WHERE student_id = ?', [studentId]);
         return res.json({ message: 'All notifications marked as read.' });
     } catch (err) {
-        return res.status(500).json({ error: 'Failed to update notifications.' });
+        return res.status(500).json({ error: 'Failed to mark all notifications as read.' });
     }
 });
 
-// GET /api/student/marks
+// GET /api/student/marks (Academic marks & test analytics)
 router.get('/marks', async (req, res) => {
     try {
         const studentId = await getStudentId(req);

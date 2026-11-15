@@ -11,8 +11,8 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Ensure DB initialization completes BEFORE handling any API requests
 let dbInitPromise = null;
@@ -39,6 +39,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/student', require('./routes/student'));
 app.use('/api/faculty', require('./routes/faculty'));
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/notices', require('./routes/notices'));
+app.use('/api/materials', require('./routes/materials'));
 app.use('/api/settings', require('./routes/settings'));
 
 // Single Page Application Fallback

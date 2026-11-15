@@ -15,9 +15,12 @@ function initAuthView() {
             if (currentPortal === 'student') {
                 inputLabel.textContent = 'USN / Student Username';
                 inputField.placeholder = 'e.g. 3CS001 or ameen';
-            } else {
+            } else if (currentPortal === 'faculty') {
                 inputLabel.textContent = 'Faculty ID / Email / Username';
                 inputField.placeholder = 'e.g. F101 or sharma';
+            } else if (currentPortal === 'admin') {
+                inputLabel.textContent = 'Admin Username / Email';
+                inputField.placeholder = 'e.g. admin or admin@college.edu';
             }
         });
     });
@@ -57,7 +60,13 @@ async function handleLogin(e) {
         showToast(`Welcome back, ${res.user.full_name}!`, 'success');
 
         // Redirect to appropriate dashboard view
-        window.location.hash = res.user.role === 'student' ? '#student-dashboard' : '#faculty-dashboard';
+        if (res.user.role === 'student') {
+            window.location.hash = '#student-dashboard';
+        } else if (res.user.role === 'admin') {
+            window.location.hash = '#admin-dashboard';
+        } else {
+            window.location.hash = '#faculty-dashboard';
+        }
         window.location.reload();
     } catch (err) {
         showToast(err.message || 'Invalid USN or password.', 'error');
@@ -70,7 +79,11 @@ function quickDemoLogin(username, role) {
     if (roleTab) roleTab.click();
 
     document.getElementById('usernameOrId').value = username;
-    document.getElementById('password').value = (role === 'student') ? 'student123' : 'password123';
+    let pwd = 'password123';
+    if (role === 'student') pwd = 'student123';
+    else if (role === 'admin') pwd = 'admin123';
+
+    document.getElementById('password').value = pwd;
 
     // Trigger submit
     document.getElementById('login-form').dispatchEvent(new Event('submit'));

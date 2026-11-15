@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db/database');
 const { JWT_SECRET, authenticateToken } = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
@@ -19,7 +20,7 @@ router.post('/login', async (req, res) => {
         if (portalType === 'student') {
             // Search by username, student USN, or email (case-insensitive)
             user = await db.get(
-                `SELECT u.*, s.id as student_id, s.usn, s.department_id, s.semester, s.section, d.name as department_name
+                `SELECT u.*, s.id as student_id, s.usn, s.department_id, s.semester, s.section, s.photo_url, d.name as department_name, d.code as department_code
                  FROM users u
                  JOIN students s ON u.id = s.user_id
                  JOIN departments d ON s.department_id = d.id
@@ -29,15 +30,22 @@ router.post('/login', async (req, res) => {
         } else if (portalType === 'faculty') {
             // Search by username, faculty ID, or email (case-insensitive)
             user = await db.get(
-                `SELECT u.*, f.id as faculty_id, f.faculty_id as fid_code, f.department_id, f.designation, d.name as department_name
+                `SELECT u.*, f.id as faculty_id, f.faculty_id as fid_code, f.department_id, f.designation, d.name as department_name, d.code as department_code
                  FROM users u
                  JOIN faculty f ON u.id = f.user_id
                  JOIN departments d ON f.department_id = d.id
                  WHERE (LOWER(u.username) = LOWER(?) OR LOWER(f.faculty_id) = LOWER(?) OR LOWER(u.email) = LOWER(?)) AND u.role = 'faculty'`,
                 [usernameOrId, usernameOrId, usernameOrId]
             );
+        } else if (portalType === 'admin') {
+            // Search admin by username or email
+            user = await db.get(
+                `SELECT * FROM users 
+                 WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)) AND role = 'admin'`,
+                [usernameOrId, usernameOrId]
+            );
         } else {
-            // Generic lookup
+            // Generic lookup fallback
             user = await db.get(`SELECT * FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)`, [usernameOrId, usernameOrId]);
         }
 
@@ -64,6 +72,9 @@ router.post('/login', async (req, res) => {
 
         const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '24h' });
 
+        // Record audit log
+        await logAudit({ headers: req.headers, socket: req.socket, user }, 'LOGIN', `User ${user.username} (${user.role}) logged in successfully via ${portalType || user.role} portal.`, user.id);
+
         return res.json({
             message: 'Login successful',
             token,
@@ -75,9 +86,11 @@ router.post('/login', async (req, res) => {
                 email: user.email,
                 usn: user.usn || user.fid_code || null,
                 department_name: user.department_name || null,
+                department_code: user.department_code || null,
                 semester: user.semester || null,
                 section: user.section || null,
                 designation: user.designation || null,
+                photo_url: user.photo_url || null,
                 student_id: user.student_id || null,
                 faculty_id: user.faculty_id || null
             }
@@ -94,7 +107,7 @@ router.get('/me', authenticateToken, async (req, res) => {
         let userDetails = null;
         if (req.user.role === 'student') {
             userDetails = await db.get(
-                `SELECT u.id, u.username, u.full_name, u.email, u.role, s.id as student_id, s.usn, s.semester, s.section, d.name as department_name, d.code as department_code
+                `SELECT u.id, u.username, u.full_name, u.email, u.role, s.id as student_id, s.usn, s.semester, s.section, s.photo_url, d.name as department_name, d.code as department_code
                  FROM users u
                  JOIN students s ON u.id = s.user_id
                  JOIN departments d ON s.department_id = d.id
@@ -110,6 +123,13 @@ router.get('/me', authenticateToken, async (req, res) => {
                  WHERE u.id = ?`,
                 [req.user.id]
             );
+        } else if (req.user.role === 'admin') {
+            userDetails = await db.get(
+                `SELECT u.id, u.username, u.full_name, u.email, u.role
+                 FROM users u
+                 WHERE u.id = ?`,
+                [req.user.id]
+            );
         }
 
         if (!userDetails) {
@@ -122,13 +142,22 @@ router.get('/me', authenticateToken, async (req, res) => {
     }
 });
 
+// POST /api/auth/logout
+router.post('/logout', authenticateToken, async (req, res) => {
+    try {
+        await logAudit(req, 'LOGOUT', `User ${req.user.username} (${req.user.role}) logged out.`, req.user.id);
+        return res.json({ message: 'Logged out successfully.' });
+    } catch (err) {
+        return res.json({ message: 'Logged out.' });
+    }
+});
+
 // POST /api/auth/forgot-password
 router.post('/forgot-password', async (req, res) => {
     const { identifier } = req.body;
     if (!identifier) {
         return res.status(400).json({ error: 'Please provide USN, Faculty ID, or Email address.' });
     }
-    // Simulate reset link email dispatch
     return res.json({
         message: `Password reset instructions have been sent to the registered email associated with '${identifier}'.`
     });
