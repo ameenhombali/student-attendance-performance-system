@@ -11,27 +11,44 @@ router.get('/', authenticateToken, async (req, res) => {
         let sql = `
             SELECT m.id, m.title, m.description, m.subject_id, m.department_id, m.semester, m.section,
                    m.file_name, m.file_type, m.file_size, m.created_at,
-                   s.name as subject_name, s.code as subject_code,
-                   d.name as department_name, d.code as department_code,
-                   u.full_name as faculty_name
+                   COALESCE(s.name, 'Subject') as subject_name, COALESCE(s.code, 'SUB') as subject_code,
+                   COALESCE(d.name, 'Department') as department_name, COALESCE(d.code, 'DEPT') as department_code,
+                   COALESCE(u.full_name, 'Faculty Instructor') as faculty_name
             FROM study_materials m
-            JOIN subjects s ON m.subject_id = s.id
-            JOIN departments d ON m.department_id = d.id
-            JOIN faculty f ON m.faculty_id = f.id
-            JOIN users u ON f.user_id = u.id
+            LEFT JOIN subjects s ON m.subject_id = s.id
+            LEFT JOIN departments d ON (m.department_id = d.id OR s.department_id = d.id)
+            LEFT JOIN faculty f ON (m.faculty_id = f.id OR s.faculty_id = f.id)
+            LEFT JOIN users u ON f.user_id = u.id
             WHERE 1=1
         `;
         const params = [];
 
         // Role-based visibility scoping
         if (req.user.role === 'student') {
-            const stu = await db.get('SELECT department_id, semester, section FROM students WHERE user_id = ?', [req.user.id]);
+            const stu = await db.get(
+                `SELECT s.id, s.department_id, s.semester, s.section 
+                 FROM students s 
+                 WHERE s.user_id = ? OR s.id = ?`,
+                [req.user.id, req.user.student_id || req.user.id]
+            );
             if (!stu) {
                 return res.status(403).json({ error: 'Student record not found.' });
             }
-            // Show materials matching dept+semester AND (section matches student's section OR section is NULL = all sections)
-            sql += ` AND m.department_id = ? AND m.semester = ? AND (m.section IS NULL OR m.section = ?)`;
-            params.push(stu.department_id, stu.semester, stu.section);
+
+            // Visible if:
+            // 1. Department and semester match the student (OR subject belongs to student's dept/sem)
+            // 2. AND section is NULL, 'All', empty, or matches student's section (case-insensitive)
+            sql += ` AND (
+                (m.department_id = ? AND m.semester = ?)
+                OR m.subject_id IN (SELECT id FROM subjects WHERE department_id = ? AND semester = ?)
+            )
+            AND (
+                m.section IS NULL 
+                OR TRIM(m.section) = '' 
+                OR LOWER(TRIM(m.section)) = 'all' 
+                OR LOWER(TRIM(m.section)) = LOWER(TRIM(?))
+            )`;
+            params.push(stu.department_id, stu.semester, stu.department_id, stu.semester, stu.section || '');
         } else if (req.user.role === 'faculty') {
             // Optional: filter by faculty's own uploads
             if (req.query.my_materials === 'true') {
@@ -156,7 +173,7 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
 // POST /api/materials - Upload Study Material (Faculty & Admin)
 router.post('/', authenticateToken, requireRole(['faculty', 'admin']), async (req, res) => {
     try {
-        const { title, description, subject_id, section, file_name, file_type, file_size, file_data } = req.body;
+        const { title, description, subject_id, department_id, semester, section, file_name, file_type, file_size, file_data } = req.body;
 
         if (!title || !subject_id || !file_name || !file_data) {
             return res.status(400).json({ error: 'Title, subject, file name, and file data are required.' });
@@ -178,12 +195,16 @@ router.post('/', authenticateToken, requireRole(['faculty', 'admin']), async (re
             facultyId = subject.faculty_id || 1;
         }
 
+        // Determine department and semester (fallback to subject's definition)
+        const finalDeptId = parseInt(department_id) || subject.department_id || 1;
+        const finalSemester = parseInt(semester) || subject.semester || 5;
+
         // Determine file type
         const ext = file_name.split('.').pop().toUpperCase();
         const detectedType = file_type || ext || 'FILE';
 
         // section: null means visible to all sections
-        const targetSection = section && section !== '' && section !== 'All' ? section : null;
+        const targetSection = section && section.trim() !== '' && section.trim().toUpperCase() !== 'ALL' ? section.trim().toUpperCase() : null;
 
         const insertRes = await db.run(
             `INSERT INTO study_materials 
@@ -193,8 +214,8 @@ router.post('/', authenticateToken, requireRole(['faculty', 'admin']), async (re
                 title.trim(),
                 description ? description.trim() : null,
                 subject.id,
-                subject.department_id,
-                subject.semester,
+                finalDeptId,
+                finalSemester,
                 targetSection,
                 facultyId,
                 file_name.trim(),

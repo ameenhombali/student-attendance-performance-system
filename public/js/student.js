@@ -10,6 +10,7 @@ async function renderStudentDashboard() {
     try {
         const data = await apiFetch('/student/dashboard');
         const { student, stats, recent_notifications, recent_attendance } = data;
+        const recent_materials = data.recent_materials || [];
 
         let warningBannerHTML = '';
         if (stats.is_low_attendance || (stats.low_attendance_warnings && stats.low_attendance_warnings.length > 0)) {
@@ -125,6 +126,47 @@ async function renderStudentDashboard() {
                             </div>
                           `).join('')}
                     </div>
+                </div>
+            </div>
+
+            <!-- Recent Course Study Materials -->
+            <div class="card" style="margin-top:24px;">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h3 style="margin:0;">📖 Course Study Materials & Lecture Notes</h3>
+                        <p style="color:var(--text-muted); font-size:0.82rem; margin:4px 0 0;">Latest study documents uploaded by your course faculty</p>
+                    </div>
+                    <a href="#study-materials" class="sidebar-link" style="padding:6px 12px; font-size:0.82rem; background:rgba(99,102,241,0.1); border-radius:6px; color:#818cf8; text-decoration:none;">View All Materials →</a>
+                </div>
+                <div style="padding:16px;">
+                    ${recent_materials.length === 0 ? `
+                        <div style="text-align:center; padding:30px; color:var(--text-muted);">
+                            <div style="font-size:2rem; margin-bottom:8px;">📚</div>
+                            <p>No study materials uploaded for your semester yet.</p>
+                        </div>
+                    ` : `
+                        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:16px;">
+                            ${recent_materials.map(m => `
+                                <div style="background:var(--bg-primary); border:1px solid var(--border-color); border-radius:10px; padding:16px; display:flex; flex-direction:column; justify-content:space-between;">
+                                    <div>
+                                        <div style="font-size:0.75rem; color:#818cf8; font-weight:600; text-transform:uppercase; margin-bottom:4px;">
+                                            ${escapeHtml(m.subject_code)} • ${escapeHtml(m.subject_name)}
+                                        </div>
+                                        <h4 style="font-size:0.95rem; font-weight:700; margin:0 0 8px; line-height:1.4;">
+                                            ${escapeHtml(m.title)}
+                                        </h4>
+                                        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:12px;">
+                                            👤 ${escapeHtml(m.faculty_name)} • 📄 ${(m.file_type || 'PDF').toUpperCase()}
+                                        </div>
+                                    </div>
+                                    <button class="btn-primary" onclick="downloadMaterialFile(${m.id})" 
+                                            style="width:100%; padding:8px 12px; font-size:0.82rem; display:flex; align-items:center; justify-content:center; gap:6px;">
+                                        ⬇ Download ${escapeHtml(m.file_type || 'PDF')}
+                                    </button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `}
                 </div>
             </div>
         `;

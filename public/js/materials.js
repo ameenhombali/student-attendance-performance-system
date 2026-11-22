@@ -67,7 +67,12 @@ async function populateMaterialSubjectsDropdown() {
         if (!select) return;
 
         select.innerHTML = `<option value="">All Subjects</option>` + 
-            subjects.map(s => `<option value="${s.id || s.subject_id}">${escapeHtml(s.code)} - ${escapeHtml(s.name)}</option>`).join('');
+            subjects.map(s => {
+                const subId = s.id || s.subject_id;
+                const subCode = s.code || s.subject_code || '';
+                const subName = s.name || s.subject_name || '';
+                return `<option value="${subId}">${escapeHtml(subCode)} - ${escapeHtml(subName)}</option>`;
+            }).join('');
     } catch (e) {
         console.warn('Could not populate subjects filter:', e);
     }
@@ -134,7 +139,7 @@ async function loadMaterials() {
                                         ${ext.slice(0, 4)}
                                     </div>
                                     <span style="font-size:0.75rem; color:var(--text-muted); background:rgba(255,255,255,0.05); padding:3px 8px; border-radius:6px;">
-                                        Sem ${m.semester}
+                                        Sem ${m.semester}${m.section ? ' • Sec ' + escapeHtml(m.section) : ' • All Sections'}
                                     </span>
                                 </div>
 
@@ -379,6 +384,8 @@ async function submitStudyMaterial(e) {
 
     const title = document.getElementById('mat-form-title').value.trim();
     const subject_id = document.getElementById('mat-form-subject').value;
+    const department_id = document.getElementById('mat-form-dept')?.value || '';
+    const semester = document.getElementById('mat-form-sem')?.value || '';
     const description = document.getElementById('mat-form-desc').value.trim();
     const section = document.getElementById('mat-form-section')?.value || '';
     const fileInput = document.getElementById('mat-form-file');
@@ -403,6 +410,8 @@ async function submitStudyMaterial(e) {
             body: JSON.stringify({
                 title,
                 subject_id,
+                department_id,
+                semester,
                 description,
                 section,
                 file_name,

@@ -135,6 +135,24 @@ router.get('/dashboard', async (req, res) => {
             [studentId]
         );
 
+        // Get recent study materials for student's enrolled courses (top 4)
+        const recentMaterials = await db.all(
+            `SELECT m.id, m.title, m.file_name, m.file_type, m.file_size, m.created_at,
+                    sub.name as subject_name, sub.code as subject_code,
+                    COALESCE(u.full_name, 'Faculty') as faculty_name
+             FROM study_materials m
+             JOIN subjects sub ON m.subject_id = sub.id
+             LEFT JOIN faculty f ON (m.faculty_id = f.id OR sub.faculty_id = f.id)
+             LEFT JOIN users u ON f.user_id = u.id
+             WHERE (
+                 (m.department_id = ? AND m.semester = ?)
+                 OR sub.id IN (SELECT id FROM subjects WHERE department_id = ? AND semester = ?)
+             )
+             AND (m.section IS NULL OR TRIM(m.section) = '' OR LOWER(TRIM(m.section)) = 'all' OR LOWER(TRIM(m.section)) = LOWER(TRIM(?)))
+             ORDER BY m.created_at DESC LIMIT 4`,
+            [student.department_id || 1, student.semester, student.department_id || 1, student.semester, student.section || '']
+        );
+
         // Get overall academic marks percentage
         const marksAvg = await db.get(
             `SELECT 
@@ -158,7 +176,8 @@ router.get('/dashboard', async (req, res) => {
                 low_attendance_warnings: lowAttendanceSubjects
             },
             recent_notifications: recentNotifications,
-            recent_attendance: recentAttendance
+            recent_attendance: recentAttendance,
+            recent_materials: recentMaterials
         });
     } catch (err) {
         console.error('Error loading student dashboard:', err);
