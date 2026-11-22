@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS study_materials (
     subject_id INTEGER NOT NULL,
     department_id INTEGER NOT NULL,
     semester INTEGER NOT NULL,
+    section TEXT DEFAULT NULL, -- NULL means visible to all sections
     faculty_id INTEGER NOT NULL,
     file_name TEXT NOT NULL,
     file_type TEXT NOT NULL,

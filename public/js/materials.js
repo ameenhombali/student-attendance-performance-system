@@ -254,6 +254,18 @@ async function openUploadMaterialModal() {
             </div>
 
             <div class="form-group">
+                <label>Target Section (optional)</label>
+                <select id="mat-form-section" class="form-control">
+                    <option value="">All Sections</option>
+                    <option value="A">Section A</option>
+                    <option value="B">Section B</option>
+                    <option value="C">Section C</option>
+                    <option value="D">Section D</option>
+                </select>
+                <small style="color:var(--text-muted); font-size:0.75rem;">Leave as "All Sections" to make this material visible to every section in the subject's semester.</small>
+            </div>
+
+            <div class="form-group">
                 <label>Choose File (PDF, PPT/PPTX, DOC/DOCX) *</label>
                 <input type="file" id="mat-form-file" class="form-control" accept=".pdf,.ppt,.pptx,.doc,.docx,.txt" required>
                 <small style="color:var(--text-muted); font-size:0.75rem;">Supported file formats: PDF, PowerPoint slides, Word documents up to 20MB.</small>
@@ -278,6 +290,7 @@ async function submitStudyMaterial(e) {
     const title = document.getElementById('mat-form-title').value.trim();
     const subject_id = document.getElementById('mat-form-subject').value;
     const description = document.getElementById('mat-form-desc').value.trim();
+    const section = document.getElementById('mat-form-section')?.value || '';
     const fileInput = document.getElementById('mat-form-file');
 
     if (!fileInput.files || !fileInput.files[0]) {
@@ -301,6 +314,7 @@ async function submitStudyMaterial(e) {
                 title,
                 subject_id,
                 description,
+                section,
                 file_name,
                 file_type,
                 file_size,

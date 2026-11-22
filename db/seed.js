@@ -182,6 +182,7 @@ async function seedDatabase(forceReset = false) {
                     subject_id INTEGER NOT NULL,
                     department_id INTEGER NOT NULL,
                     semester INTEGER NOT NULL,
+                    section TEXT DEFAULT NULL,
                     faculty_id INTEGER NOT NULL,
                     file_name TEXT NOT NULL,
                     file_type TEXT NOT NULL,
@@ -235,6 +236,12 @@ async function seedDatabase(forceReset = false) {
         // Safe column addition for existing databases
         try {
             await db.run('ALTER TABLE students ADD COLUMN photo_url TEXT');
+        } catch (e) {
+            // Column already exists, safe to ignore
+        }
+        // Add section column to study_materials (for per-section targeting)
+        try {
+            await db.run('ALTER TABLE study_materials ADD COLUMN section TEXT DEFAULT NULL');
         } catch (e) {
             // Column already exists, safe to ignore
         }

@@ -9,7 +9,7 @@ router.get('/', authenticateToken, async (req, res) => {
     try {
         const { subject_id, search } = req.query;
         let sql = `
-            SELECT m.id, m.title, m.description, m.subject_id, m.department_id, m.semester,
+            SELECT m.id, m.title, m.description, m.subject_id, m.department_id, m.semester, m.section,
                    m.file_name, m.file_type, m.file_size, m.created_at,
                    s.name as subject_name, s.code as subject_code,
                    d.name as department_name, d.code as department_code,
@@ -25,14 +25,15 @@ router.get('/', authenticateToken, async (req, res) => {
 
         // Role-based visibility scoping
         if (req.user.role === 'student') {
-            const stu = await db.get('SELECT department_id, semester FROM students WHERE user_id = ?', [req.user.id]);
+            const stu = await db.get('SELECT department_id, semester, section FROM students WHERE user_id = ?', [req.user.id]);
             if (!stu) {
                 return res.status(403).json({ error: 'Student record not found.' });
             }
-            sql += ` AND m.department_id = ? AND m.semester = ?`;
-            params.push(stu.department_id, stu.semester);
+            // Show materials matching dept+semester AND (section matches student's section OR section is NULL = all sections)
+            sql += ` AND m.department_id = ? AND m.semester = ? AND (m.section IS NULL OR m.section = ?)`;
+            params.push(stu.department_id, stu.semester, stu.section);
         } else if (req.user.role === 'faculty') {
-            // Optional: filter by faculty's handled subjects or allow viewing all department materials
+            // Optional: filter by faculty's own uploads
             if (req.query.my_materials === 'true') {
                 const fac = await db.get('SELECT id FROM faculty WHERE user_id = ?', [req.user.id]);
                 if (fac) {
@@ -97,7 +98,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // POST /api/materials - Upload Study Material (Faculty & Admin)
 router.post('/', authenticateToken, requireRole(['faculty', 'admin']), async (req, res) => {
     try {
-        const { title, description, subject_id, file_name, file_type, file_size, file_data } = req.body;
+        const { title, description, subject_id, section, file_name, file_type, file_size, file_data } = req.body;
 
         if (!title || !subject_id || !file_name || !file_data) {
             return res.status(400).json({ error: 'Title, subject, file name, and file data are required.' });
@@ -123,16 +124,20 @@ router.post('/', authenticateToken, requireRole(['faculty', 'admin']), async (re
         const ext = file_name.split('.').pop().toUpperCase();
         const detectedType = file_type || ext || 'FILE';
 
+        // section: null means visible to all sections
+        const targetSection = section && section !== '' && section !== 'All' ? section : null;
+
         const insertRes = await db.run(
             `INSERT INTO study_materials 
-             (title, description, subject_id, department_id, semester, faculty_id, file_name, file_type, file_size, file_data)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             (title, description, subject_id, department_id, semester, section, faculty_id, file_name, file_type, file_size, file_data)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 title.trim(),
                 description ? description.trim() : null,
                 subject.id,
                 subject.department_id,
                 subject.semester,
+                targetSection,
                 facultyId,
                 file_name.trim(),
                 detectedType,
@@ -141,7 +146,7 @@ router.post('/', authenticateToken, requireRole(['faculty', 'admin']), async (re
             ]
         );
 
-        await logAudit(req, 'STUDY_MATERIAL_UPLOADED', `Uploaded material: "${title.trim()}" (${file_name}) for subject ${subject.name}.`, insertRes.id);
+        await logAudit(req, 'STUDY_MATERIAL_UPLOADED', `Uploaded material: "${title.trim()}" (${file_name}) for subject ${subject.name}${targetSection ? ' Section ' + targetSection : ''}.`, insertRes.id);
 
         return res.status(201).json({
             message: 'Study material uploaded successfully.',

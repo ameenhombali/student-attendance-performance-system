@@ -229,7 +229,7 @@ async function loadStudentRoster() {
     tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;">Loading roster...</td></tr>`;
 
     try {
-        const res = await apiFetch(`/faculty/students?subject_id=${subjectId}&section=${section}&date=${date}&class_period=${encodeURIComponent(period)}`);
+        const res = await apiFetch(`/faculty/roster?subject_id=${subjectId}&section=${section}&date=${date}&class_period=${encodeURIComponent(period)}`);
         const { students, already_submitted } = res;
 
         currentAttendanceRoster = students.map(s => ({
@@ -324,7 +324,7 @@ async function submitAttendanceForm() {
             body: JSON.stringify(payload)
         });
 
-        showToast(`✅ ${res.message} (${res.present_count} Present, ${res.absent_count} Absent)`, 'success');
+        showToast(`✅ ${res.message} (${res.stats ? res.stats.present : ''} Present, ${res.stats ? res.stats.absent : ''} Absent)`, 'success');
         loadStudentRoster(); // Refresh status and trigger duplicate lock
     } catch (err) {
         if (err.message.includes('DUPLICATE_ENTRY') || err.message.includes('already been submitted')) {
