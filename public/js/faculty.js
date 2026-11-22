@@ -544,18 +544,23 @@ async function loadStudentMarksRoster() {
 
     try {
         const res = await apiFetch(`/faculty/marks?subject_id=${subjectId}`);
-        const { marks } = res;
+        const marks = res.marks || res.students || [];
+
+        if (marks.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--text-muted);">No enrolled students found for this subject.</td></tr>`;
+            return;
+        }
 
         tbody.innerHTML = marks.map(m => `
             <tr data-student-id="${m.student_id}">
-                <td><strong>${m.usn}</strong></td>
-                <td>${m.full_name}</td>
-                <td><input type="number" min="0" max="25" class="form-control mark-input" data-field="internal_1" value="${m.internal_1}" style="width:70px; padding:6px;"></td>
-                <td><input type="number" min="0" max="25" class="form-control mark-input" data-field="internal_2" value="${m.internal_2}" style="width:70px; padding:6px;"></td>
-                <td><input type="number" min="0" max="10" class="form-control mark-input" data-field="assignment" value="${m.assignment}" style="width:70px; padding:6px;"></td>
-                <td><input type="number" min="0" max="20" class="form-control mark-input" data-field="lab" value="${m.lab}" style="width:70px; padding:6px;"></td>
-                <td><input type="number" min="0" max="20" class="form-control mark-input" data-field="project" value="${m.project}" style="width:70px; padding:6px;"></td>
-                <td><input type="number" min="0" max="100" class="form-control mark-input" data-field="final_exam" value="${m.final_exam}" style="width:80px; padding:6px;"></td>
+                <td><strong>${escapeHtml(m.usn)}</strong></td>
+                <td>${escapeHtml(m.full_name)}</td>
+                <td><input type="number" min="0" max="25" class="form-control mark-input" data-field="internal_1" value="${m.internal_1 !== null && m.internal_1 !== undefined ? m.internal_1 : ''}" style="width:70px; padding:6px;"></td>
+                <td><input type="number" min="0" max="25" class="form-control mark-input" data-field="internal_2" value="${m.internal_2 !== null && m.internal_2 !== undefined ? m.internal_2 : ''}" style="width:70px; padding:6px;"></td>
+                <td><input type="number" min="0" max="10" class="form-control mark-input" data-field="assignment" value="${m.assignment !== null && m.assignment !== undefined ? m.assignment : ''}" style="width:70px; padding:6px;"></td>
+                <td><input type="number" min="0" max="20" class="form-control mark-input" data-field="lab" value="${m.lab !== null && m.lab !== undefined ? m.lab : ''}" style="width:70px; padding:6px;"></td>
+                <td><input type="number" min="0" max="20" class="form-control mark-input" data-field="project" value="${m.project !== null && m.project !== undefined ? m.project : ''}" style="width:70px; padding:6px;"></td>
+                <td><input type="number" min="0" max="100" class="form-control mark-input" data-field="final_exam" value="${m.final_exam !== null && m.final_exam !== undefined ? m.final_exam : ''}" style="width:80px; padding:6px;"></td>
             </tr>
         `).join('');
     } catch (err) {
@@ -570,16 +575,48 @@ async function saveStudentMarksForm() {
     const rows = document.querySelectorAll('#marks-tbody tr[data-student-id]');
     const marksList = [];
 
-    rows.forEach(tr => {
+    const limits = {
+        internal_1: { max: 25, label: 'IA 1' },
+        internal_2: { max: 25, label: 'IA 2' },
+        assignment: { max: 10, label: 'Assignment' },
+        lab: { max: 20, label: 'Lab' },
+        project: { max: 20, label: 'Project' },
+        final_exam: { max: 100, label: 'Final Exam' }
+    };
+
+    for (const tr of rows) {
         const studentId = tr.dataset.studentId;
+        const studentName = tr.children[1]?.textContent || 'Student';
         const inputs = tr.querySelectorAll('.mark-input');
         const item = { student_id: parseInt(studentId) };
 
-        inputs.forEach(inp => {
-            item[inp.dataset.field] = parseFloat(inp.value) || 0;
-        });
+        for (const inp of inputs) {
+            const field = inp.dataset.field;
+            const val = inp.value.trim();
+            const num = val === '' ? 0 : parseFloat(val);
+
+            if (isNaN(num)) {
+                showToast(`Invalid numeric mark entered for ${studentName}`, 'error');
+                inp.focus();
+                return;
+            }
+
+            if (num < 0) {
+                showToast(`${limits[field].label} cannot be negative for ${studentName}`, 'error');
+                inp.focus();
+                return;
+            }
+
+            if (num > limits[field].max) {
+                showToast(`${limits[field].label} maximum is ${limits[field].max} (entered ${num}) for ${studentName}`, 'error');
+                inp.focus();
+                return;
+            }
+
+            item[field] = num;
+        }
         marksList.push(item);
-    });
+    }
 
     try {
         const res = await apiFetch('/faculty/marks', {

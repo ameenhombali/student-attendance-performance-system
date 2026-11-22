@@ -182,21 +182,63 @@ async function loadMaterials() {
 async function downloadMaterialFile(id) {
     try {
         showToast('Preparing download...', 'info');
-        const data = await apiFetch(`/materials/${id}`);
-        const m = data.material;
+        const token = getToken();
+        const res = await fetch(`/api/materials/${id}/download`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
 
-        if (!m || !m.file_data) {
-            throw new Error('Material download link not available.');
+        if (!res.ok) {
+            const data = await apiFetch(`/materials/${id}`);
+            const m = data.material;
+
+            if (!m || !m.file_data) {
+                throw new Error('Material download link not available.');
+            }
+
+            let b64 = m.file_data;
+            let mime = 'application/octet-stream';
+            if (b64.startsWith('data:')) {
+                const parts = b64.split(',');
+                const match = parts[0].match(/:(.*?);/);
+                if (match) mime = match[1];
+                b64 = parts.slice(1).join(',');
+            }
+            const cleanB64 = b64.replace(/[^A-Za-z0-9+/=]/g, '');
+            const byteChars = atob(cleanB64);
+            const byteNums = new Array(byteChars.length);
+            for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+            const byteArray = new Uint8Array(byteNums);
+            const blob = new Blob([byteArray], { type: mime });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = m.file_name || 'Study_Material';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+            showToast(`Downloaded ${m.file_name}`, 'success');
+            return;
         }
 
+        const blob = await res.blob();
+        const disposition = res.headers.get('Content-Disposition') || '';
+        let filename = 'Study_Material';
+        const match = disposition.match(/filename="?([^";]+)"?/);
+        if (match && match[1]) filename = decodeURIComponent(match[1]);
+
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = m.file_data;
-        a.download = m.file_name || 'Study_Material';
+        a.href = url;
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
 
-        showToast(`Downloaded ${m.file_name}`, 'success');
+        showToast(`Downloaded ${filename}`, 'success');
     } catch (err) {
         showToast(err.message, 'error');
     }
@@ -233,6 +275,8 @@ async function openUploadMaterialModal() {
         }
     } catch (e) {}
 
+    window._availableMaterialSubjects = subjects;
+
     body.innerHTML = `
         <form id="upload-material-form" onsubmit="submitStudyMaterial(event)">
             <div class="form-group">
@@ -240,12 +284,51 @@ async function openUploadMaterialModal() {
                 <input type="text" id="mat-form-title" class="form-control" placeholder="e.g. Unit 3: Graph Algorithms & Dynamic Programming" required>
             </div>
 
-            <div class="form-group">
-                <label>Target Subject *</label>
-                <select id="mat-form-subject" class="form-control" required>
-                    <option value="">-- Select Subject --</option>
-                    ${subjects.map(s => `<option value="${s.id}">${escapeHtml(s.code)} - ${escapeHtml(s.name)} (Sem ${s.semester})</option>`).join('')}
-                </select>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                <div class="form-group">
+                    <label>Department</label>
+                    <select id="mat-form-dept" class="form-control" onchange="onMaterialFilterChange()">
+                        <option value="">All Departments</option>
+                        <option value="1" selected>Computer Science & Engineering (CSE)</option>
+                        <option value="2">Information Science (ISE)</option>
+                        <option value="3">Electronics & Communication (ECE)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Semester</label>
+                    <select id="mat-form-sem" class="form-control" onchange="onMaterialFilterChange()">
+                        <option value="">All Semesters</option>
+                        <option value="1">Semester 1</option>
+                        <option value="2">Semester 2</option>
+                        <option value="3">Semester 3</option>
+                        <option value="4">Semester 4</option>
+                        <option value="5" selected>Semester 5</option>
+                        <option value="6">Semester 6</option>
+                        <option value="7">Semester 7</option>
+                        <option value="8">Semester 8</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 2fr 1fr; gap:12px;">
+                <div class="form-group">
+                    <label>Target Subject *</label>
+                    <select id="mat-form-subject" class="form-control" required>
+                        <option value="">-- Select Subject --</option>
+                        ${subjects.map(s => `<option value="${s.id}" data-sem="${s.semester}" data-dept="${s.department_id || 1}">${escapeHtml(s.code)} - ${escapeHtml(s.name)} (Sem ${s.semester})</option>`).join('')}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Target Section</label>
+                    <select id="mat-form-section" class="form-control">
+                        <option value="">All Sections</option>
+                        <option value="A">Section A</option>
+                        <option value="B">Section B</option>
+                        <option value="C">Section C</option>
+                        <option value="D">Section D</option>
+                    </select>
+                </div>
             </div>
 
             <div class="form-group">
@@ -254,21 +337,9 @@ async function openUploadMaterialModal() {
             </div>
 
             <div class="form-group">
-                <label>Target Section (optional)</label>
-                <select id="mat-form-section" class="form-control">
-                    <option value="">All Sections</option>
-                    <option value="A">Section A</option>
-                    <option value="B">Section B</option>
-                    <option value="C">Section C</option>
-                    <option value="D">Section D</option>
-                </select>
-                <small style="color:var(--text-muted); font-size:0.75rem;">Leave as "All Sections" to make this material visible to every section in the subject's semester.</small>
-            </div>
-
-            <div class="form-group">
                 <label>Choose File (PDF, PPT/PPTX, DOC/DOCX) *</label>
-                <input type="file" id="mat-form-file" class="form-control" accept=".pdf,.ppt,.pptx,.doc,.docx,.txt" required>
-                <small style="color:var(--text-muted); font-size:0.75rem;">Supported file formats: PDF, PowerPoint slides, Word documents up to 20MB.</small>
+                <input type="file" id="mat-form-file" class="form-control" accept=".pdf,.ppt,.pptx,.doc,.docx" required>
+                <small style="color:var(--text-muted); font-size:0.75rem;">Supported file formats: PDF, PowerPoint slides (.ppt, .pptx), Word documents (.doc, .docx) up to 20MB.</small>
             </div>
 
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
@@ -279,6 +350,25 @@ async function openUploadMaterialModal() {
     `;
 
     modal.classList.add('active');
+}
+
+function onMaterialFilterChange() {
+    const sem = document.getElementById('mat-form-sem')?.value;
+    const subSelect = document.getElementById('mat-form-subject');
+    if (!subSelect || !window._availableMaterialSubjects) return;
+
+    const filtered = window._availableMaterialSubjects.filter(s => {
+        if (sem && s.semester && s.semester != sem) return false;
+        return true;
+    });
+
+    const currentVal = subSelect.value;
+    subSelect.innerHTML = `<option value="">-- Select Subject --</option>` +
+        filtered.map(s => `<option value="${s.id}" data-sem="${s.semester}" data-dept="${s.department_id || 1}">${escapeHtml(s.code)} - ${escapeHtml(s.name)} (Sem ${s.semester})</option>`).join('');
+
+    if (currentVal && filtered.some(s => s.id == currentVal)) {
+        subSelect.value = currentVal;
+    }
 }
 
 async function submitStudyMaterial(e) {

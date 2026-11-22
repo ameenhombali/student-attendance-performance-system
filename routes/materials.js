@@ -83,15 +83,73 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
         // Student department & semester check
         if (req.user.role === 'student') {
-            const stu = await db.get('SELECT department_id, semester FROM students WHERE user_id = ?', [req.user.id]);
+            const stu = await db.get('SELECT department_id, semester, section FROM students WHERE user_id = ?', [req.user.id]);
             if (!stu || stu.department_id !== material.department_id || stu.semester !== material.semester) {
                 return res.status(403).json({ error: 'You are not enrolled in the department/semester for this material.' });
+            }
+            if (material.section && stu.section && material.section !== stu.section) {
+                return res.status(403).json({ error: `This study material is reserved for Section ${material.section}.` });
             }
         }
 
         return res.json({ material });
     } catch (err) {
         return res.status(500).json({ error: 'Failed to fetch material.' });
+    }
+});
+
+// GET /api/materials/:id/download - Stream binary file download
+router.get('/:id/download', authenticateToken, async (req, res) => {
+    try {
+        const material = await db.get('SELECT * FROM study_materials WHERE id = ?', [req.params.id]);
+        if (!material) {
+            return res.status(404).json({ error: 'Study material not found.' });
+        }
+
+        // Student restrictions: department, semester, and section
+        if (req.user.role === 'student') {
+            const stu = await db.get('SELECT department_id, semester, section FROM students WHERE user_id = ?', [req.user.id]);
+            if (!stu || stu.department_id !== material.department_id || stu.semester !== material.semester) {
+                return res.status(403).json({ error: 'You are not authorized to access this material.' });
+            }
+            if (material.section && stu.section && material.section !== stu.section) {
+                return res.status(403).json({ error: `This study material is reserved for Section ${material.section}.` });
+            }
+        }
+
+        if (!material.file_data) {
+            return res.status(404).json({ error: 'File data is empty or missing.' });
+        }
+
+        // Parse base64
+        let base64Content = material.file_data;
+        let mimeType = 'application/octet-stream';
+
+        if (base64Content.startsWith('data:')) {
+            const parts = base64Content.split(',');
+            const match = parts[0].match(/:(.*?);/);
+            if (match) mimeType = match[1];
+            base64Content = parts.slice(1).join(',');
+        } else {
+            const ext = (material.file_name.split('.').pop() || '').toLowerCase();
+            if (ext === 'pdf') mimeType = 'application/pdf';
+            else if (ext === 'ppt') mimeType = 'application/vnd.ms-powerpoint';
+            else if (ext === 'pptx') mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+            else if (ext === 'doc') mimeType = 'application/msword';
+            else if (ext === 'docx') mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        }
+
+        // Clean out any non-base64 characters
+        const cleanBase64 = base64Content.replace(/[^A-Za-z0-9+/=]/g, '');
+        const fileBuffer = Buffer.from(cleanBase64, 'base64');
+
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', fileBuffer.length);
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(material.file_name)}"`);
+        return res.send(fileBuffer);
+    } catch (err) {
+        console.error('Error downloading material:', err);
+        return res.status(500).json({ error: 'Failed to process file download.' });
     }
 });
 

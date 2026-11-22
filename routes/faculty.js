@@ -332,9 +332,9 @@ router.get('/correction-requests', async (req, res) => {
             JOIN students s ON ac.student_id = s.id
             JOIN users u ON s.user_id = u.id
             JOIN subjects sub ON ac.subject_id = sub.id
-            WHERE ac.faculty_id = ?
+            WHERE (ac.faculty_id = ? OR sub.faculty_id = ?)
         `;
-        const params = [facultyId];
+        const params = [facultyId, facultyId];
 
         if (status && status !== 'All') {
             sql += ` AND ac.status = ?`;
@@ -367,8 +367,8 @@ router.put('/correction-requests/:id', async (req, res) => {
              JOIN students s ON ac.student_id = s.id
              JOIN users u ON s.user_id = u.id
              JOIN subjects sub ON ac.subject_id = sub.id
-             WHERE ac.id = ? AND ac.faculty_id = ?`,
-            [req.params.id, facultyId]
+             WHERE ac.id = ? AND (ac.faculty_id = ? OR sub.faculty_id = ?)`,
+            [req.params.id, facultyId, facultyId]
         );
 
         if (!reqRecord) {
@@ -382,7 +382,7 @@ router.put('/correction-requests/:id', async (req, res) => {
         const now = new Date().toISOString();
 
         if (action === 'Approved') {
-            // 1. Update correction request status
+            // 1. Update correction request status (reviewed_at timestamp)
             await db.run(
                 `UPDATE attendance_corrections 
                  SET status = 'Approved', faculty_remarks = ?, reviewed_at = ? 
@@ -472,7 +472,18 @@ router.get('/marks', async (req, res) => {
             [subject_id, subject.department_id, subject.semester]
         );
 
-        return res.json({ subject, students });
+        // Normalize nulls to empty strings or 0
+        const formattedStudents = students.map(s => ({
+            ...s,
+            internal_1: s.internal_1 !== null && s.internal_1 !== undefined ? s.internal_1 : '',
+            internal_2: s.internal_2 !== null && s.internal_2 !== undefined ? s.internal_2 : '',
+            assignment: s.assignment !== null && s.assignment !== undefined ? s.assignment : '',
+            lab: s.lab !== null && s.lab !== undefined ? s.lab : '',
+            project: s.project !== null && s.project !== undefined ? s.project : '',
+            final_exam: s.final_exam !== null && s.final_exam !== undefined ? s.final_exam : ''
+        }));
+
+        return res.json({ subject, students: formattedStudents, marks: formattedStudents });
     } catch (err) {
         console.error('Error fetching student marks:', err);
         return res.status(500).json({ error: 'Failed to fetch student marks.' });
@@ -492,7 +503,34 @@ router.post('/marks', async (req, res) => {
         const subjectName = subject ? `${subject.code} - ${subject.name}` : `Subject ID ${subject_id}`;
 
         for (const item of marks_list) {
-            const { student_id, internal_1, internal_2, assignment, lab, project, final_exam } = item;
+            let { student_id, internal_1, internal_2, assignment, lab, project, final_exam } = item;
+
+            internal_1 = parseFloat(internal_1) || 0;
+            internal_2 = parseFloat(internal_2) || 0;
+            assignment = parseFloat(assignment) || 0;
+            lab = parseFloat(lab) || 0;
+            project = parseFloat(project) || 0;
+            final_exam = parseFloat(final_exam) || 0;
+
+            // Strict Validation
+            if (internal_1 < 0 || internal_1 > 25) {
+                return res.status(400).json({ error: `IA 1 marks must be between 0 and 25 (received ${internal_1}).` });
+            }
+            if (internal_2 < 0 || internal_2 > 25) {
+                return res.status(400).json({ error: `IA 2 marks must be between 0 and 25 (received ${internal_2}).` });
+            }
+            if (assignment < 0 || assignment > 10) {
+                return res.status(400).json({ error: `Assignment marks must be between 0 and 10 (received ${assignment}).` });
+            }
+            if (lab < 0 || lab > 20) {
+                return res.status(400).json({ error: `Lab marks must be between 0 and 20 (received ${lab}).` });
+            }
+            if (project < 0 || project > 20) {
+                return res.status(400).json({ error: `Project marks must be between 0 and 20 (received ${project}).` });
+            }
+            if (final_exam < 0 || final_exam > 100) {
+                return res.status(400).json({ error: `Final exam marks must be between 0 and 100 (received ${final_exam}).` });
+            }
 
             await db.run(
                 `INSERT INTO marks (student_id, subject_id, internal_1, internal_2, assignment, lab, project, final_exam)
@@ -504,7 +542,7 @@ router.post('/marks', async (req, res) => {
                     lab = excluded.lab,
                     project = excluded.project,
                     final_exam = excluded.final_exam`,
-                [student_id, subject_id, internal_1 || 0, internal_2 || 0, assignment || 0, lab || 0, project || 0, final_exam || 0]
+                [student_id, subject_id, internal_1, internal_2, assignment, lab, project, final_exam]
             );
         }
 
@@ -518,7 +556,7 @@ router.post('/marks', async (req, res) => {
         return res.json({ message: 'Marks updated successfully for all students!' });
     } catch (err) {
         console.error('Error saving marks:', err);
-        return res.status(500).json({ error: 'Failed to save student marks.' });
+        return res.status(500).json({ error: 'Failed to save marks.' });
     }
 });
 

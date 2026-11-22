@@ -275,11 +275,11 @@ router.get('/correction-requests', async (req, res) => {
         const requests = await db.all(
             `SELECT ac.*, 
                     sub.code as subject_code, sub.name as subject_name,
-                    u.full_name as faculty_name
+                    COALESCE(u.full_name, 'Subject Faculty') as faculty_name
              FROM attendance_corrections ac
              JOIN subjects sub ON ac.subject_id = sub.id
-             JOIN faculty f ON ac.faculty_id = f.id
-             JOIN users u ON f.user_id = u.id
+             LEFT JOIN faculty f ON (ac.faculty_id = f.id OR sub.faculty_id = f.id)
+             LEFT JOIN users u ON f.user_id = u.id
              WHERE ac.student_id = ?
              ORDER BY ac.created_at DESC`,
             [studentId]
@@ -302,7 +302,7 @@ router.post('/correction-requests', async (req, res) => {
 
         // Validate attendance record exists and belongs to this student and was marked Absent
         const att = await db.get(
-            `SELECT a.*, sub.name as subject_name, sub.code as subject_code
+            `SELECT a.*, sub.name as subject_name, sub.code as subject_code, sub.faculty_id as sub_faculty_id
              FROM attendance a
              JOIN subjects sub ON a.subject_id = sub.id
              WHERE a.id = ? AND a.student_id = ?`,
@@ -317,14 +317,20 @@ router.post('/correction-requests', async (req, res) => {
             return res.status(400).json({ error: `This class session is already recorded as '${att.status}'. Only 'Absent' records can be disputed.` });
         }
 
-        // Check if there is already a Pending request for this attendance record
+        // Prevent duplicate requests: Check if there is already an active request for this attendance record
         const existingReq = await db.get(
-            `SELECT id FROM attendance_corrections WHERE attendance_id = ? AND status = 'Pending'`,
+            `SELECT id, status FROM attendance_corrections WHERE attendance_id = ?`,
             [attendance_id]
         );
         if (existingReq) {
-            return res.status(400).json({ error: 'A correction request for this class session is already pending review by faculty.' });
+            if (existingReq.status === 'Pending') {
+                return res.status(400).json({ error: 'A correction request for this class session is already pending review by faculty.' });
+            } else if (existingReq.status === 'Approved') {
+                return res.status(400).json({ error: 'A correction request for this class session has already been approved.' });
+            }
         }
+
+        const targetFacultyId = att.faculty_id || att.sub_faculty_id || 1;
 
         const insertRes = await db.run(
             `INSERT INTO attendance_corrections 
@@ -334,7 +340,7 @@ router.post('/correction-requests', async (req, res) => {
                 studentId,
                 att.id,
                 att.subject_id,
-                att.faculty_id,
+                targetFacultyId,
                 att.date,
                 att.class_period,
                 reason.trim(),
@@ -360,8 +366,8 @@ router.post('/correction-requests', async (req, res) => {
     }
 });
 
-// GET /api/student/history (Existing Attendance History)
-router.get('/history', async (req, res) => {
+// GET /api/student/attendance/history & /api/student/history (Attendance History with summary)
+router.get(['/attendance/history', '/history'], async (req, res) => {
     try {
         const studentId = await getStudentId(req);
         const { subject_id, status, from_date, to_date, search } = req.query;
@@ -369,12 +375,12 @@ router.get('/history', async (req, res) => {
         let sql = `
             SELECT a.id, a.date, a.class_period, a.status, a.timestamp,
                    sub.name as subject_name, sub.code as subject_code,
-                   u.full_name as faculty_name,
+                   COALESCE(u.full_name, 'Faculty') as faculty_name,
                    ac.id as correction_id, ac.status as correction_status
             FROM attendance a
             JOIN subjects sub ON a.subject_id = sub.id
-            JOIN faculty f ON a.faculty_id = f.id
-            JOIN users u ON f.user_id = u.id
+            LEFT JOIN faculty f ON a.faculty_id = f.id
+            LEFT JOIN users u ON f.user_id = u.id
             LEFT JOIN attendance_corrections ac ON a.id = ac.attendance_id
             WHERE a.student_id = ?
         `;
@@ -404,31 +410,46 @@ router.get('/history', async (req, res) => {
         sql += ` ORDER BY a.date DESC, a.timestamp DESC`;
 
         const logs = await db.all(sql, params);
-        return res.json({ history: logs });
+
+        const total = logs.length;
+        const present = logs.filter(l => l.status === 'Present').length;
+        const absent = total - present;
+        const percentage = total > 0 ? parseFloat(((present / total) * 100).toFixed(1)) : 100.0;
+
+        const summary = {
+            total,
+            present,
+            absent,
+            percentage
+        };
+
+        return res.json({ 
+            history: logs,
+            records: logs,
+            summary
+        });
     } catch (err) {
         console.error('Error fetching student history:', err);
         return res.status(500).json({ error: 'Failed to fetch attendance history.' });
     }
 });
 
-// GET /api/student/subjects (Subject-wise breakdown)
-router.get('/subjects', async (req, res) => {
+// GET /api/student/attendance/subject-wise & /api/student/subjects (Subject-wise breakdown)
+router.get(['/attendance/subject-wise', '/subjects'], async (req, res) => {
     try {
         const studentId = await getStudentId(req);
 
         const subjects = await db.all(
             `SELECT 
                 sub.id as subject_id, sub.code as subject_code, sub.name as subject_name, sub.semester,
-                u.full_name as faculty_name, u.email as faculty_email,
+                COALESCE(u.full_name, 'Faculty') as faculty_name, u.email as faculty_email,
                 COUNT(a.id) as total_classes,
                 SUM(CASE WHEN a.status = 'Present' THEN 1 ELSE 0 END) as present_count,
-                SUM(CASE WHEN a.status = 'Absent' THEN 1 ELSE 0 END) as absent_count,
-                ROUND(CAST(SUM(CASE WHEN a.status = 'Present' THEN 1 ELSE 0 END) AS FLOAT) / 
-                      CASE WHEN COUNT(a.id) > 0 THEN COUNT(a.id) ELSE 1 END * 100, 1) as percentage
+                SUM(CASE WHEN a.status = 'Absent' THEN 1 ELSE 0 END) as absent_count
              FROM subjects sub
              JOIN students s ON s.id = ? AND s.department_id = sub.department_id AND s.semester = sub.semester
-             JOIN faculty f ON sub.faculty_id = f.id
-             JOIN users u ON f.user_id = u.id
+             LEFT JOIN faculty f ON sub.faculty_id = f.id
+             LEFT JOIN users u ON f.user_id = u.id
              LEFT JOIN attendance a ON a.subject_id = sub.id AND a.student_id = s.id
              GROUP BY sub.id
              ORDER BY sub.code ASC`,
@@ -438,22 +459,51 @@ router.get('/subjects', async (req, res) => {
         const thresholdSetting = await db.get("SELECT value FROM settings WHERE key = 'min_attendance_threshold'");
         const minThreshold = thresholdSetting ? parseFloat(thresholdSetting.value) : 75.0;
 
+        let grandTotal = 0;
+        let grandPresent = 0;
+
         const formattedSubjects = subjects.map(s => {
             const total = s.total_classes || 0;
             const pres = s.present_count || 0;
+            const abs = total >= pres ? total - pres : (s.absent_count || 0);
             const pct = total > 0 ? parseFloat(((pres / total) * 100).toFixed(1)) : 100.0;
+            
+            grandTotal += total;
+            grandPresent += pres;
+
+            let color_status = 'green';
+            if (pct < minThreshold) {
+                color_status = 'red';
+            } else if (pct < 85) {
+                color_status = 'yellow';
+            }
+
             return {
-                ...s,
+                subject_id: s.subject_id,
+                subject_code: s.subject_code,
+                subject_name: s.subject_name,
+                semester: s.semester,
+                faculty_name: s.faculty_name,
+                faculty_email: s.faculty_email,
                 total_classes: total,
+                present: pres,
                 present_count: pres,
-                absent_count: s.absent_count || 0,
+                absent: abs,
+                absent_count: abs,
                 percentage: pct,
+                color_status,
                 is_low: pct < minThreshold
             };
         });
 
+        const overallPct = grandTotal > 0 ? parseFloat(((grandPresent / grandTotal) * 100).toFixed(1)) : 100.0;
+        const lowAttendanceWarnings = formattedSubjects.filter(s => s.is_low);
+
         return res.json({
             min_threshold: minThreshold,
+            overall_percentage: overallPct,
+            is_low_attendance: overallPct < minThreshold,
+            low_attendance_warnings: lowAttendanceWarnings,
             subjects: formattedSubjects
         });
     } catch (err) {
