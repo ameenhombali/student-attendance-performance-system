@@ -173,19 +173,14 @@ router.post('/attendance', async (req, res) => {
             return res.status(400).json({ error: 'Missing required attendance fields or empty student list.' });
         }
 
-        // 1. Prevent Duplicate Submission Check
-        const existingCount = await db.get(
-            `SELECT COUNT(*) as count FROM attendance 
+        // Check for existing attendance records for this session
+        const existingRecords = await db.all(
+            `SELECT student_id, status FROM attendance 
              WHERE subject_id = ? AND date = ? AND class_period = ?`,
             [subject_id, date, class_period]
         );
-
-        if (existingCount && existingCount.count > 0) {
-            return res.status(409).json({
-                error: 'DUPLICATE_ENTRY',
-                message: `Attendance for this Subject, Date (${date}), and Class Period (${class_period}) has ALREADY been submitted. Duplicate submission is not permitted.`
-            });
-        }
+        const existingMap = {};
+        existingRecords.forEach(r => { existingMap[r.student_id] = r.status; });
 
         // Get Subject Info for Notification text
         const subject = await db.get('SELECT name, code FROM subjects WHERE id = ?', [subject_id]);
@@ -194,38 +189,55 @@ router.post('/attendance', async (req, res) => {
         let presentCount = 0;
         let absentCount = 0;
 
-        // Perform inserts in batch
+        // Perform inserts or updates in batch using INSERT OR REPLACE
         for (const item of attendance_list) {
             const { student_id, status } = item;
             const validStatus = (status === 'Absent') ? 'Absent' : 'Present';
 
-            if (validStatus === 'Present') presentCount++;
-            else absentCount++;
+            if (validStatus === 'Present') presentCount++; else absentCount++;
 
-            // Insert Attendance Record
-            const attRes = await db.run(
-                `INSERT INTO attendance (student_id, subject_id, faculty_id, date, class_period, status)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [student_id, subject_id, facultyId, date, class_period, validStatus]
+            // Check if attendance record already exists for this student/session
+            const existingRec = await db.get(
+                `SELECT id FROM attendance WHERE student_id = ? AND subject_id = ? AND date = ? AND class_period = ?`,
+                [student_id, subject_id, date, class_period]
             );
 
-            // Generate Notification for Student
+            let attId;
+            if (existingRec) {
+                // Update existing record
+                await db.run(
+                    `UPDATE attendance SET status = ?, faculty_id = ?, timestamp = CURRENT_TIMESTAMP WHERE id = ?`,
+                    [validStatus, facultyId, existingRec.id]
+                );
+                attId = existingRec.id;
+            } else {
+                // Insert new attendance record
+                const insertRes = await db.run(
+                    `INSERT INTO attendance (student_id, subject_id, faculty_id, date, class_period, status) VALUES (?, ?, ?, ?, ?, ?)`,
+                    [student_id, subject_id, facultyId, date, class_period, validStatus]
+                );
+                // SQLite run returns lastID as insertId
+                attId = insertRes.lastID || insertRes.id;
+            }
+
+            // Generate Notification for Student (replace any prior notification for same attendance)
             const isPres = (validStatus === 'Present');
             const icon = isPres ? '✅' : '❌';
             const title = isPres ? 'Attendance Marked' : 'Attendance Alert';
             const type = isPres ? 'present_alert' : 'absent_alert';
             const msg = `${icon} ${title}: You were marked ${validStatus} for ${subjectName} class on ${date} at ${class_period.split(' - ')[0]}.`;
 
+            // Delete old notification for this attendance if exists
+            await db.run(`DELETE FROM notifications WHERE attendance_id = ?`, [attId]);
             await db.run(
-                `INSERT INTO notifications (student_id, title, message, type, is_read, attendance_id)
-                 VALUES (?, ?, ?, ?, 0, ?)`,
-                [student_id, title, msg, type, attRes.id]
+                `INSERT INTO notifications (student_id, title, message, type, is_read, attendance_id) VALUES (?, ?, ?, ?, 0, ?)`,
+                [student_id, title, msg, type, attId]
             );
         }
 
         await logAudit(
-            req, 
-            'ATTENDANCE_MARKED', 
+            req,
+            'ATTENDANCE_MARKED',
             `Marked attendance for ${subjectName} on ${date} (${class_period}): ${presentCount} Present, ${absentCount} Absent.`,
             subject_id
         );
@@ -238,7 +250,6 @@ router.post('/attendance', async (req, res) => {
                 absent: absentCount
             }
         });
-
     } catch (err) {
         console.error('Error submitting attendance:', err);
         return res.status(500).json({ error: 'Failed to submit attendance.' });
@@ -513,24 +524,12 @@ router.post('/marks', async (req, res) => {
             final_exam = parseFloat(final_exam) || 0;
 
             // Strict Validation
-            if (internal_1 < 0 || internal_1 > 25) {
-                return res.status(400).json({ error: `IA 1 marks must be between 0 and 25 (received ${internal_1}).` });
-            }
-            if (internal_2 < 0 || internal_2 > 25) {
-                return res.status(400).json({ error: `IA 2 marks must be between 0 and 25 (received ${internal_2}).` });
-            }
-            if (assignment < 0 || assignment > 10) {
-                return res.status(400).json({ error: `Assignment marks must be between 0 and 10 (received ${assignment}).` });
-            }
-            if (lab < 0 || lab > 20) {
-                return res.status(400).json({ error: `Lab marks must be between 0 and 20 (received ${lab}).` });
-            }
-            if (project < 0 || project > 20) {
-                return res.status(400).json({ error: `Project marks must be between 0 and 20 (received ${project}).` });
-            }
-            if (final_exam < 0 || final_exam > 100) {
-                return res.status(400).json({ error: `Final exam marks must be between 0 and 100 (received ${final_exam}).` });
-            }
+            if (internal_1 < 0 || internal_1 > 25) { return res.status(400).json({ error: `IA 1 marks must be between 0 and 25 (received ${internal_1}).` }); }
+            if (internal_2 < 0 || internal_2 > 25) { return res.status(400).json({ error: `IA 2 marks must be between 0 and 25 (received ${internal_2}).` }); }
+            if (assignment < 0 || assignment > 10) { return res.status(400).json({ error: `Assignment marks must be between 0 and 10 (received ${assignment}).` }); }
+            if (lab < 0 || lab > 20) { return res.status(400).json({ error: `Lab marks must be between 0 and 20 (received ${lab}).` }); }
+            if (project < 0 || project > 20) { return res.status(400).json({ error: `Project marks must be between 0 and 20 (received ${project}).` }); }
+            if (final_exam < 0 || final_exam > 100) { return res.status(400).json({ error: `Final exam marks must be between 0 and 100 (received ${final_exam}).` }); }
 
             await db.run(
                 `INSERT INTO marks (student_id, subject_id, internal_1, internal_2, assignment, lab, project, final_exam)
